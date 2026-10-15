@@ -1,0 +1,12 @@
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -938,6 +938,9 @@
+ 
+ 	/* Open file information: */
+ 	struct files_struct		*files;
++
++	/* MuMu 1.9.2 vendor task fields; layout verified from driver DWARF. */
++	unsigned char			ksu_mumu_abi_reserved[24];
+ 
+ 	/* Namespaces: */
+ 	struct nsproxy			*nsproxy;

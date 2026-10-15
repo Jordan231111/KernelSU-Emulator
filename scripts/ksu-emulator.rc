@@ -1,0 +1,11 @@
+on post-fs-data
+    exec u:r:init:s0 root -- /system/bin/sh /system/etc/ksu-emulator/boot.sh
+
+on nonencrypted && property:sys.ksu_emulator.ready=1
+    exec u:r:ksu:s0 root -- /data/adb/ksud services
+
+on property:vold.decrypt=trigger_restart_framework && property:sys.ksu_emulator.ready=1
+    exec u:r:ksu:s0 root -- /data/adb/ksud services
+
+on property:sys.boot_completed=1 && property:sys.ksu_emulator.ready=1
+    exec u:r:ksu:s0 root -- /data/adb/ksud boot-completed

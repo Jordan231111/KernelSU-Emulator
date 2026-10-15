@@ -1,0 +1,244 @@
+--- a/kernel/compat/kernel_compat.h
++++ b/kernel/compat/kernel_compat.h
+@@ -6,6 +6,11 @@
+ #include <linux/task_work.h>
+ #include "ss/policydb.h"
+ #include "linux/key.h"
++
++/* 4.19 hides this macro from modules; syscall wrappers pair it explicitly. */
++#ifndef preempt_enable_no_resched_notrace
++#define preempt_enable_no_resched_notrace() do { barrier(); __preempt_count_dec(); } while (0)
++#endif
+ 
+ /*
+  * Adapt to Huawei HISI kernel without affecting other kernels ,
+--- a/kernel/core/init.c
++++ b/kernel/core/init.c
+@@ -51,7 +51,7 @@
+ // Therefore, ksu lkm, which uses gki toolchain, requires this __stack_chk_guard,
+ // while those third-party kernel can't provide.
+ // Thus, we manually provide it instead of using kernel's
+-#if defined(CONFIG_STACKPROTECTOR) &&                                          \
++#if !defined(KSU_MUMU_VENDOR_GUARD) && defined(CONFIG_STACKPROTECTOR) &&         \
+     (defined(CONFIG_ARM64) && defined(MODULE) &&                               \
+      !defined(CONFIG_STACKPROTECTOR_PER_TASK))
+ #include <linux/stackprotector.h>
+@@ -175,10 +175,7 @@
+ 		ksu_boot_completed = true;
+ 		track_throne(false);
+ 
+-		if (!getenforce()) {
+-			pr_info("Permissive SELinux, enforcing\n");
+-			setenforce(true);
+-		}
++		/* MuMu's vendor userspace boots permissive. Preserve its policy mode. */
+ 
+ 	} else {
+ 		ksu_syscall_hook_manager_init();
+@@ -193,6 +190,8 @@
+ 	}
+ 
+ #ifdef MODULE
++	/* Legacy LSM hooks persist: require a reboot instead of unsafe unload. */
++	__module_get(THIS_MODULE);
+ #ifndef CONFIG_KSU_DEBUG
+ 	kobject_del(&THIS_MODULE->mkobj.kobj);
+ #endif
+--- a/kernel/Kbuild
++++ b/kernel/Kbuild
+@@ -1,4 +1,5 @@
+ kernelsu-objs := core/init.o
++ccflags-y += -DKSU_MUMU_VENDOR_GUARD
+ 
+ kernelsu-objs += compat/kernel_compat.o
+ kernelsu-objs += feature/kernel_umount.o
+@@ -172,50 +173,7 @@
+ $(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)
+ endif
+ 
+-# some backports
+-ifneq ($(shell grep -Eq "^static int can_umount" $(srctree)/fs/namespace.c; echo $$?),0)
+-$(info -- KSU_NEXT: adding function 'static int can_umount(const struct path *path, int flags);' to $(srctree)/fs/namespace.c)
+-CAN_UMOUNT = static int can_umount(const struct path *path, int flags)\n\
+-{\n\t\
+-        struct mount *mnt = real_mount(path->mnt);\n\t\
+-        if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))\n\t\t\
+-                return -EINVAL;\n\t\
+-        if (!may_mount())\n\t\t\
+-                return -EPERM;\n\t\
+-        if (path->dentry != path->mnt->mnt_root)\n\t\t\
+-                return -EINVAL;\n\t\
+-        if (!check_mnt(mnt))\n\t\t\
+-                return -EINVAL;\n\t\
+-        if (mnt->mnt.mnt_flags & MNT_LOCKED)\n\t\t\
+-                return -EINVAL;\n\t\
+-        if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))\n\t\t\
+-                return -EPERM;\n\t\
+-        return 0;\n\
+-}\n
+-$(shell sed -i '/^static bool is_mnt_ns_file/i $(CAN_UMOUNT)' $(srctree)/fs/namespace.c;)
+-endif
+-
+-ifneq ($(shell grep -Eq "^int path_umount" $(srctree)/fs/namespace.c; echo $$?),0)
+-$(info -- KSU_NEXT: adding function 'int path_umount(struct path *path, int flags);' to $(srctree)/fs/namespace.c)
+-PATH_UMOUNT = int path_umount(struct path *path, int flags)\n\
+-{\n\t\
+-        struct mount *mnt = real_mount(path->mnt);\n\t\
+-        int ret;\n\t\
+-        ret = can_umount(path, flags);\n\t\
+-        if (!ret)\n\t\t\
+-                ret = do_umount(mnt, flags);\n\t\
+-        dput(path->dentry);\n\t\
+-        mntput_no_expire(mnt);\n\t\
+-        return ret;\n\
+-}\n
+-$(shell sed -i '/^static bool is_mnt_ns_file/i $(PATH_UMOUNT)' $(srctree)/fs/namespace.c;)
+-endif
+-
+-ifneq ($(shell grep -Eq "^int path_umount" $(srctree)/fs/internal.h; echo $$?),0)
+-$(shell sed -i '/^extern void __init mnt_init/a int path_umount(struct path *path, int flags);' $(srctree)/fs/internal.h;)
+-$(info -- KSU_NEXT: adding 'int path_umount(struct path *path, int flags);' to $(srctree)/fs/internal.h)
+-endif
+-
++# Preserve the vendor kernel API; use legacy ksys_umount at runtime.
+ ifneq ($(shell grep -q "atomic_t filter_count;" $(srctree)/include/linux/seccomp.h; echo $$?),0)
+ $(info -- KSU_NEXT: patching struct seccomp for filter_count)
+ $(shell sed -i '/int mode;/a\	atomic_t filter_count;' $(srctree)/include/linux/seccomp.h)
+@@ -301,7 +259,7 @@
+ endif
+ 
+ ifeq ($(shell grep -q "int\s\+path_umount" $(srctree)/fs/namespace.c; echo $$?),0)
+-ccflags-y += -DKSU_HAS_PATH_UMOUNT
++# MuMu's running vendor kernel has ksys_umount, not the build-tree backport.
+ endif
+ 
+ # some old kernel backport this, let's check if put_seccomp_filter still exist
+--- a/kernel/hook/lsm_hooks.c
++++ b/kernel/hook/lsm_hooks.c
+@@ -144,7 +144,14 @@
+ 
+ void __init ksu_lsm_hook_init(void)
+ {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
++#if defined(MODULE) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
++	/* security_add_hooks is __init and has been freed by late module load. */
++	int i;
++	for (i = 0; i < ARRAY_SIZE(ksu_hooks); ++i) {
++		ksu_hooks[i].lsm = "ksu";
++		hlist_add_tail_rcu(&ksu_hooks[i].list, ksu_hooks[i].head);
++	}
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+ 	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), &ksu_lsmid);
+ #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+ 	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), "ksu");
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -90,6 +90,16 @@
+ 	return userspace_stack_buffer(ksud_path, sizeof(ksud_path));
+ }
+ 
++static long ksu_read_user_path(char *dst, const char __user *src, long count)
++{
++#ifdef KSU_SYSCALL_TABLE_HOOK
++	/* A forked shell's path page can fault. Syscall context permits sleeping. */
++	return strncpy_from_user(dst, src, count);
++#else
++	return strncpy_from_user_nofault(dst, src, count);
++#endif
++}
++
+ int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+ 		int *mode, int *__unused_flags)
+ {
+@@ -105,7 +115,7 @@
+ 
+ 	char path[sizeof(su) + 1];
+ 	memset(path, 0, sizeof(path));
+-	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
++	ksu_read_user_path(path, *filename_user, sizeof(path));
+ 
+ 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
+ 		ksu_compat_sulog('a');
+@@ -135,7 +145,7 @@
+ 
+ 	char path[sizeof(su) + 1];
+ 	memset(path, 0, sizeof(path));
+-	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
++	ksu_read_user_path(path, *filename_user, sizeof(path));
+ 
+ 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
+ 		ksu_compat_sulog('s');
+@@ -171,14 +181,14 @@
+ 	if (!ksu_is_allow_uid_for_current(current_uid().val))
+ 		goto do_orig_execve;
+ 
+-	if (get_user(fn_addr, filename_user))
+-		goto do_orig_execve;
++	/* filename_user points into kernel pt_regs, not into userspace. */
++	fn_addr = READ_ONCE(*filename_user);
+ 
+ 	addr = untagged_addr((unsigned long)fn_addr);
+ 	fn = (const char __user *)addr;
+ 	memset(path, 0, sizeof(path));
+ 
+-	ret = strncpy_from_user_nofault(path, fn, sizeof(path));
++	ret = ksu_read_user_path(path, fn, sizeof(path));
+ 	if (ret < 0 && preempt_count()) {
+ 		preempt_enable_no_resched_notrace();
+ 		ret = strncpy_from_user(path, fn, sizeof(path));
+--- a/kernel/hook/syscall_table_hook.c
++++ b/kernel/hook/syscall_table_hook.c
+@@ -31,6 +31,9 @@
+ #include "feature/adb_root.h"
+ #include "runtime/ksud.h"
+ 
++extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
++			       void __user **arg);
++
+ // The pt_regs-based syscall ABI (__arm64_sys_*/__x64_sys_*) exists since 4.17
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
+ #error "syscall table hook requires kernel >= 4.17 (pt_regs syscall ABI)"
+@@ -122,7 +125,7 @@
+ 	fn = (const char __user *)addr;
+ 
+ 	memset(path, 0, sizeof(path));
+-	ret = strncpy_from_user_nofault(path, fn, sizeof(path));
++	ret = strncpy_from_user(path, fn, sizeof(path));
+ 	if (ret < 0 && preempt_count()) {
+ 		preempt_enable_no_resched_notrace();
+ 		ret = strncpy_from_user(path, fn, sizeof(path));
+@@ -168,7 +171,7 @@
+ 
+ 	// New bionic maps execve to execveat(AT_FDCWD, path, argv, envp, 0)
+ 	if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&
+-	    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {
++	    (int)PT_REGS_PARM5(regs) == 0) {
+ 		if (current->pid != 1 && is_init(current_cred())) {
+ 			ksu_sth_init_exec_tracker(*filename_user);
+ 			adb_ret = ksu_adb_root_handle_execveat(
+@@ -213,12 +216,25 @@
+ }
+ #endif
+ 
++#ifdef __NR_reboot
++static long ksu_sth_reboot(const struct pt_regs *regs)
++{
++	void __user *arg = (void __user *)PT_REGS_SYSCALL_PARM4(regs);
++	ksu_handle_sys_reboot((int)PT_REGS_PARM1(regs),
++		(int)PT_REGS_PARM2(regs), (unsigned int)PT_REGS_PARM3(regs), &arg);
++	return ksu_sth_call_orig(__NR_reboot, regs);
++}
++#endif
++
+ void __init ksu_syscall_table_hook_init(void)
+ {
+ 	struct {
+ 		int nr;
+ 		ksu_syscall_fn_t wrapper;
+ 	} hooks[] = {
++#ifdef __NR_reboot
++		{ __NR_reboot, ksu_sth_reboot },
++#endif
+ #ifdef __NR_execve
+ 		{ __NR_execve, ksu_sth_execve },
+ #endif

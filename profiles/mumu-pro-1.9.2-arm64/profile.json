@@ -1,0 +1,37 @@
+{
+  "id": "mumu-pro-1.9.2-arm64",
+  "emulator": "MuMuPlayer Pro",
+  "emulator_version": "1.9.2",
+  "architecture": "aarch64",
+  "android_version": "12",
+  "kernel_release": "4.19.195-android-arm64-gedae1315d023",
+  "kernel_version": "#1 SMP PREEMPT Thu Sep 10 15:06:08 CST 2026",
+  "kernel_image_sha256": "a19bc7d813b6ad627faa6683bfb928e45e36b53e25afb2ef3c257817f7bd73fc",
+  "config_gz_sha256": "27fd6094b7f096ed9b08934f2962ea819b3e179c3035f60b05a00b5c44cee3d7",
+  "vendor_module_sha256": "b72640447fe408b65fe63e5bca4058a927ff828aa68ce1c42f537077748ad0cd",
+  "ksu_version": 33355,
+  "ksu_tag": "v3.4.2",
+  "ksu_package": "com.rifsxd.ksunext",
+  "kernel_source_commit": "f931d3c324845b1be4337d27b565351fb581f206",
+  "ksu_source_commit": "c81cdf51c3bb606836c6fc9a7cc858053eb0bc62",
+  "userspace_source_commit": "4c706b5938665866ebe16944a481a7b91e3396af",
+  "sources": {
+    "kernel": {
+      "url": "https://codeload.github.com/aosp-mirror/kernel_common/tar.gz/f931d3c324845b1be4337d27b565351fb581f206",
+      "sha256": "2f3ef34a8dc5192dbc3c3e62080245967e3e5a958206e417592375122b0f95ef"
+    },
+    "kernelsu": {
+      "url": "https://codeload.github.com/KernelSU-Next/KernelSU-Next/tar.gz/c81cdf51c3bb606836c6fc9a7cc858053eb0bc62",
+      "sha256": "5db5086d11a17fac7524f7272418555a44160e73db2e1bf96990d1549cb4691c"
+    },
+    "userspace": {
+      "url": "https://codeload.github.com/KernelSU-Next/KernelSU-Next/tar.gz/4c706b5938665866ebe16944a481a7b91e3396af",
+      "sha256": "f693c13d195ca1cd99865a3990393aae76ea4e577d17ca4bb8c81b14c5b10784"
+    },
+    "manager": {
+      "url": "https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v3.4.2/KernelSU_Next_v3.4.2_33355-release.apk",
+      "sha256": "774a5511f7034a4930e881114e202319cbdc34c5aaaa5c7c6b6d2902364e4c58"
+    }
+  },
+  "ksud_sha256": "7794fb0546955e10b3b61a2771b325d52e47ac1d4702970c9a46e3b1667db042"
+}

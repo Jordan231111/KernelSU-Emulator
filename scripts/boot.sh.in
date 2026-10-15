@@ -1,0 +1,22 @@
+#!/system/bin/sh
+# Generated for one verified kernel profile. A failed check stops installation.
+set -eu
+base=/system/etc/ksu-emulator
+mkdir -p /data/adb/ksu-emulator
+exec >>/data/adb/ksu-emulator/boot.log 2>&1
+echo "KernelSU-Emulator boot: $(date -u)"
+[ "$(uname -r)" = '@KERNEL_RELEASE@' ] || exit 20
+[ "$(uname -v)" = '@KERNEL_VERSION@' ] || exit 21
+[ "$(sha256sum /proc/config.gz | cut -d ' ' -f 1)" = '@CONFIG_SHA256@' ] || exit 22
+cd "$base"
+sha256sum -c payload.sha256 || exit 23
+if grep -q '^kernelsu ' /proc/modules; then
+    echo 'KernelSU is already loaded; refusing a second installation.'
+    exit 24
+fi
+./ksud insmod ./kernelsu.ko allow_shell=0 norc=1
+./ksud install
+[ "$(./ksud debug version)" = 'Kernel Version: @KSU_VERSION@' ] || exit 25
+./ksud post-fs-data
+setprop sys.ksu_emulator.ready 1
+echo 'KernelSU-Emulator ready'

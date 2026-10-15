@@ -1,0 +1,21 @@
+name: Build MuMu module
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - run: python ksu.py build
+      - run: python ksu.py check-bundle out/mumu-pro-1.9.2-arm64
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mumu-pro-1.9.2-arm64
+          path: out/mumu-pro-1.9.2-arm64/
+          if-no-files-found: error
