@@ -1,0 +1,8 @@
+--- a/target
++++ b/target
+@@ -1,4 +1,5 @@
+ service mediametrics /system/bin/mediametrics
++    seclabel u:r:mediametrics:s0
+     class main
+     user media
+     group media

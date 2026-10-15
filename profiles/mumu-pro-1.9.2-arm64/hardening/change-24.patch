@@ -1,0 +1,26 @@
+--- a/target
++++ b/target
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ 
+ service traced /system/bin/traced
++    seclabel u:r:traced:s0
+     class late_start
+     disabled
+     socket traced_consumer stream 0666 root root
+@@ -22,6 +23,7 @@
+     writepid /dev/cpuset/system-background/tasks
+ 
+ service traced_probes /system/bin/traced_probes
++    seclabel u:r:traced_probes:s0
+     class late_start
+     disabled
+     user nobody
+@@ -79,6 +81,7 @@
+ #############################################################################
+ 
+ service mm_events /system/bin/mm_events
++    seclabel u:r:mm_events:s0
+     class late_start
+     disabled
+     oneshot

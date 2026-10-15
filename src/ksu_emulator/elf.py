@@ -6,7 +6,7 @@ import struct
 from .common import Error
 
 
-def module_info(data: bytes) -> dict:
+def module_info(data: bytes, expected_name: str | None = "kernelsu") -> dict:
     def region(offset: int, length: int) -> bytes:
         if offset < 0 or length < 0 or offset > len(data) or length > len(data) - offset:
             raise Error("Truncated ELF section")
@@ -59,6 +59,6 @@ def module_info(data: bytes) -> dict:
                     result["undefined_symbols"].append(string(strings, n))
                 elif n and index == 0xfff1 and value >= 0xffff000000000000:
                     result["absolute_symbols"].append(string(strings, n))
-    if not result.get("vermagic") or result.get("name") != "kernelsu":
-        raise Error("Not a KernelSU module with vermagic")
+    if not result.get("vermagic") or (expected_name is not None and result.get("name") != expected_name):
+        raise Error("Not the expected kernel module with vermagic")
     return result

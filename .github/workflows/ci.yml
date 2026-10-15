@@ -22,4 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: bash -n scripts/build-in-container.sh && sh -n scripts/boot.sh.in
+      - run: |
+          bash -n scripts/build-in-container.sh tests/guest/build-android.sh
+          for script in scripts/boot.sh.in scripts/susfs-*.sh* profiles/*/hardening/*.sh; do
+            sh -n "$script"
+          done

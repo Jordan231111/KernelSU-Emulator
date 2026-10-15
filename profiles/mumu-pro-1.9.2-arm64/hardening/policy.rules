@@ -1,0 +1,184 @@
+type mumu_opengl_exec exec_type
+type mumu_nemuinit_service service_manager_type
+type mumu_public_config_file file_type
+type mumu_config_root_dir file_type
+type mumu_shared_lib_file file_type
+type mumu_vaddress_device dev_type
+type mumu_runtime_config_file file_type
+type mumu_runtime_config_dir file_type
+type mumu_app_log_dir file_type
+type mumu_app_log_file file_type
+type mumu_control_prop property_type
+type mumu_boot_timing_prop property_type
+type mumu_theme_service service_manager_type
+type mumu_net_exec exec_type
+type mumu_wifi_info_prop property_type
+type mumu_shared_mount_dir file_type
+typeattribute mumu_public_config_file data_file_type
+typeattribute mumu_public_config_file core_data_file_type
+typeattribute mumu_public_config_file mlstrustedobject
+typeattribute mumu_config_root_dir data_file_type
+typeattribute mumu_config_root_dir core_data_file_type
+typeattribute mumu_shared_lib_file data_file_type
+typeattribute mumu_shared_lib_file core_data_file_type
+typeattribute mumu_shared_lib_file mlstrustedobject
+typeattribute mumu_vaddress_device mlstrustedobject
+typeattribute mumu_runtime_config_file data_file_type
+typeattribute mumu_runtime_config_file core_data_file_type
+typeattribute mumu_runtime_config_file mlstrustedobject
+typeattribute mumu_runtime_config_dir data_file_type
+typeattribute mumu_runtime_config_dir core_data_file_type
+typeattribute mumu_runtime_config_dir mlstrustedobject
+typeattribute mumu_app_log_dir data_file_type
+typeattribute mumu_app_log_dir core_data_file_type
+typeattribute mumu_app_log_file data_file_type
+typeattribute mumu_app_log_file core_data_file_type
+typeattribute mumu_app_log_file mlstrustedobject
+typeattribute mumu_control_prop system_property_type
+typeattribute mumu_control_prop system_public_property_type
+typeattribute mumu_boot_timing_prop system_property_type
+typeattribute mumu_boot_timing_prop system_public_property_type
+typeattribute mumu_net_exec file_type
+typeattribute mumu_net_exec system_file_type
+typeattribute mumu_wifi_info_prop vendor_property_type
+typeattribute mumu_wifi_info_prop vendor_public_property_type
+typeattribute mumu_shared_mount_dir mlstrustedobject
+allow zygote mumu_nemuinit_service service_manager find
+allow init mumu_nemuinit_service service_manager { add find }
+allow system_server mumu_nemuinit_service service_manager find
+allow system_app mumu_nemuinit_service service_manager find
+allow init system_server binder { call transfer }
+allow system_server init binder { call transfer }
+allow init system_app binder { call transfer }
+allow system_app init binder { call transfer }
+allow appdomain mumu_public_config_file file { read open getattr map }
+allow zygote mumu_public_config_file file { read open getattr map }
+allow system_app mumu_public_config_file file { create read open getattr write append setattr unlink rename map }
+allow appdomain qemu_sf_lcd_density_prop file { read open getattr map }
+allow appdomain mumu_config_root_dir dir { search read open getattr }
+allow zygote mumu_config_root_dir dir { search read open getattr }
+allow init mumu_config_root_dir dir { create read open getattr search write add_name remove_name setattr }
+allow system_app mumu_config_root_dir dir { create read open getattr search write add_name remove_name setattr }
+type_transition init mumu_config_root_dir dir mumu_config_root_dir
+type_transition system_app mumu_config_root_dir dir mumu_config_root_dir
+type_transition init mumu_config_root_dir file mumu_public_config_file
+type_transition system_app mumu_config_root_dir file mumu_public_config_file
+type_transition zygote mumu_config_root_dir dir mumu_runtime_config_dir
+allow zygote mumu_config_root_dir dir { create write add_name setattr }
+allow init mumu_public_config_file file { create read open getattr write append setattr unlink rename map }
+allow storaged sysfs file { read open getattr }
+allow appdomain mumu_shared_lib_file file { read open getattr map execute }
+allow zygote mumu_shared_lib_file file { read open getattr map execute }
+allow appdomain init_svc_debug_prop file { read open getattr map }
+allow hal_wifi_default hal_wifi_default netlink_route_socket nlmsg_read
+allow appdomain mumu_runtime_config_dir dir { search read open getattr }
+allow appdomain mumu_runtime_config_file file { read open getattr map }
+allow zygote mumu_runtime_config_dir dir { search read open getattr write add_name remove_name }
+allow zygote mumu_runtime_config_file file { create read open getattr write setattr unlink rename map }
+type_transition zygote mumu_runtime_config_dir file mumu_runtime_config_file
+type_transition zygote mumu_runtime_config_dir dir mumu_runtime_config_dir
+allow zygote mumu_runtime_config_dir dir { create setattr rmdir rename }
+allow zygote mumu_runtime_config_file file mounton
+allow zygote serialno_prop file { read open getattr map }
+allow vold unlabeled filesystem unmount
+type_transition zygote mumu_app_log_dir dir mumu_app_log_dir
+type_transition zygote mumu_app_log_dir file mumu_app_log_file
+allow zygote tombstone_data_file dir search
+allow zygote mumu_app_log_dir dir { create read open getattr write search add_name remove_name setattr }
+allow zygote mumu_app_log_file file { create read open getattr write append setattr unlink lock }
+allow appdomain mumu_app_log_file file { write append getattr }
+allow zygote servicemanager binder { call transfer }
+allow servicemanager zygote binder transfer
+allow zygote init binder { call transfer }
+allow init zygote binder transfer
+allow zygote init fd use
+allow hal_wifi_default hal_wifi_default netlink_route_socket { read write nlmsg_readpriv }
+allow init init capability sys_ptrace
+allow init kmsg_device chr_file append
+allow init mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm init mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow surfaceflinger mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm surfaceflinger mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow hal_sensors_default mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm hal_sensors_default mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow hal_graphics_allocator_default mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm hal_graphics_allocator_default mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow hal_camera_default mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm hal_camera_default mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow hal_audio_default mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm hal_audio_default mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow appdomain mumu_vaddress_device chr_file { open read write getattr ioctl map }
+allowxperm appdomain mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow domain mumu_control_prop file { read open getattr map }
+allow surfaceflinger mumu_control_prop property_service set
+allow init mumu_control_prop property_service set
+allow system_app mumu_control_prop property_service set
+allow surfaceflinger graphics_config_prop property_service set
+allow surfaceflinger mumu_config_root_dir dir { search read open getattr }
+allow surfaceflinger mumu_runtime_config_file file { read open getattr map }
+allow surfaceflinger mumu_public_config_file file { read open getattr map }
+allow zygote shell_exec file { execute execute_no_trans read open getattr map }
+allow zygote property_socket sock_file write
+allow zygote init unix_stream_socket connectto
+allow init shell_exec file execute_no_trans
+allow kernel device chr_file getattr
+allow domain mumu_boot_timing_prop file { read open getattr map }
+allow zygote mumu_boot_timing_prop property_service set
+allow system_server mumu_boot_timing_prop property_service set
+allow init mumu_boot_timing_prop property_service set
+allow zygote toolbox_exec file { getattr read open map execute execute_no_trans }
+allow kernel dev_type chr_file { create getattr setattr unlink }
+allow kernel device dir { create read open search getattr setattr write add_name remove_name rmdir }
+allow system_app mumu_theme_service service_manager { add find }
+allow system_server mumu_theme_service service_manager { add find }
+allow init mumu_theme_service service_manager add
+allow hal_vibrator_default mumu_nemuinit_service service_manager find
+allow hal_vibrator_default init binder { call transfer }
+allow init hal_vibrator_default binder { call transfer }
+allow hal_vibrator_default boot_status_prop file { read open getattr map }
+allow hal_health_default sysfs file { read open getattr }
+allow system_suspend sysfs dir { read open search getattr }
+allow system_suspend sysfs file { read open getattr }
+allow hal_camera_default default_prop file { read open getattr map }
+allow zygote proc_uptime file { read open getattr }
+allow zygote apex_data_file dir search
+allow system_server qemu_sf_lcd_density_prop file { read open getattr map }
+allow system_server mumu_config_root_dir dir { read open search getattr }
+allow system_server mumu_public_config_file file { read open getattr map }
+allow system_server mumu_runtime_config_dir dir { read open search getattr }
+allow system_server mumu_runtime_config_file file { read open getattr map }
+allow system_server mumu_app_log_dir dir { read open search getattr write add_name remove_name setattr }
+allow system_server mumu_app_log_file file { read open getattr write append unlink setattr }
+allow vold hal_bootctl_hwservice hwservice_manager find
+allow hal_gnss_default mumu_vaddress_device chr_file { read write open getattr map ioctl }
+allowxperm hal_gnss_default mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow shell adbd fifo_file { read write getattr ioctl }
+allow hal_wifi_default persist_vendor_debug_wifi_prop file { read open getattr map }
+allow hal_wifi_default hal_wifi_default netlink_route_socket { create bind getattr getopt setopt }
+allow system_server mumu_control_prop property_service set
+allow system_server mumu_net_exec file { execute execute_no_trans read open getattr map }
+allow hal_wifi_default mumu_wifi_info_prop property_service set
+allow domain mumu_wifi_info_prop file { read open getattr map }
+allow system_app mumu_shared_mount_dir dir { create read open getattr search write add_name remove_name setattr rmdir }
+allow init mumu_shared_mount_dir dir { create read open getattr search write add_name remove_name setattr rmdir mounton }
+type_transition system_app mumu_shared_mount_dir dir mumu_shared_mount_dir
+type_transition init mumu_shared_mount_dir dir mumu_shared_mount_dir
+allow system_server mumu_vaddress_device chr_file { read write open getattr map ioctl }
+allowxperm system_server mumu_vaddress_device chr_file ioctl { 0x4c15-0x4c1a }
+allow wificond wificond udp_socket ioctl
+allowxperm wificond wificond udp_socket ioctl { 0x8927 }
+allow system_server build_bootimage_prop file { read open getattr map }
+allow webview_zygote qemu_sf_lcd_density_prop file { read open getattr map }
+allow webview_zygote mumu_config_root_dir dir { search read open getattr }
+allow webview_zygote mumu_public_config_file file { read open getattr map }
+allow platform_app mumu_nemuinit_service service_manager find
+allow network_stack mumu_nemuinit_service service_manager find
+allow platform_app mumu_theme_service service_manager find
+allow platform_app init binder { call transfer }
+allow init platform_app binder { call transfer }
+allow network_stack init binder { call transfer }
+allow init network_stack binder { call transfer }
+typeattribute mumu_opengl_exec file_type
+typeattribute mumu_opengl_exec system_file_type
+allow init mumu_opengl_exec file { read open getattr map execute execute_no_trans }
+allow platform_app mumu_shared_mount_dir dir { search read open getattr }

@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -309,3 +309,7 @@
+ wifirtt                                   u:object_r:rttmanager_service:s0
+ window                                    u:object_r:window_service:s0
+ *                                         u:object_r:default_android_service:s0
++
++nemuinit u:object_r:mumu_nemuinit_service:s0
++
++nemu_theme u:object_r:mumu_theme_service:s0

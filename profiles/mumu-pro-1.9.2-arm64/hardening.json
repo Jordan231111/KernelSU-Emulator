@@ -1,0 +1,352 @@
+{
+  "schema": 1,
+  "id": "mumu-pro-1.9.2-enforcing",
+  "base_profile": "mumu-pro-1.9.2-arm64",
+  "status": "verified",
+  "files": [
+    {
+      "path": "/system/apex/com.android.media.swcodec/etc/init.rc",
+      "before_sha256": "9f56dc96657c75c554fab7f034f29eb7df341933cc8b0cfb601acf763cf3aed0",
+      "after_sha256": "8053c816e4d0d547f6bcea390cecf380e478e84d123047fdf23ea462e4d5ef13",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-00.patch"
+    },
+    {
+      "path": "/system/apex/com.android.os.statsd/etc/init.rc",
+      "before_sha256": "4b9aec4dad12243ba3652c5d3521f1129931240dc27e400409cff8d4630b08a7",
+      "after_sha256": "eb075a3eb36a1d969c4f3ae58c67b9f2a3bd746b0da02dfa10b31f0b2888aac7",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-01.patch"
+    },
+    {
+      "path": "/system/etc/init/android.hidl.allocator@1.0-service.rc",
+      "before_sha256": "a56e76ce0cb3933dcda463c7b401aee5bf15c78d16279edc98db7bda23bf4ec9",
+      "after_sha256": "e0d6428657a004c9f6b7cdc203a5ca051b948646f98b94204aaf406fe47f81a3",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-02.patch"
+    },
+    {
+      "path": "/system/etc/init/android.system.suspend@1.0-service.rc",
+      "before_sha256": "c7164caf27ccdc9df71555d54006d087be131ef0afa5bd380b42bb9c5726eb67",
+      "after_sha256": "a2ce8ed34616fb610ed4f9054638865568c27c6f48d8ed5e2024fd4b8786a83d",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-03.patch"
+    },
+    {
+      "path": "/system/etc/init/audioserver.rc",
+      "before_sha256": "f9a2aed1b5a524f1d804aa3c8c87b746529f3d5cd1123901749ed1229d858d7d",
+      "after_sha256": "834a56ea17d1f7b4435f3c09dec3e3bbfc6f48f324a7f24ac884d81b6161cb53",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-04.patch"
+    },
+    {
+      "path": "/system/etc/init/bpfloader.rc",
+      "before_sha256": "a34022e2e98ed8f5da05baaca3e5cb634c9f05b68aca0492d8d9d110d6bd6194",
+      "after_sha256": "c6f6b207207993f78fe012ea9f978b26af95b6127725bff78a59cb28f5679bfa",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-05.patch"
+    },
+    {
+      "path": "/system/etc/init/cameraserver.rc",
+      "before_sha256": "0e4a8267a696dea00b5a82d208f5ee763404a1420867af82de739d31422611bd",
+      "after_sha256": "880bd86387323d2c9ca6a5b0dbd48fc05ef42463a130c2b7fd872e5673cf9daa",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-06.patch"
+    },
+    {
+      "path": "/system/etc/init/credstore.rc",
+      "before_sha256": "438e38856cdf410379144d7dfacff0f37a961007b238a0acba1d442bc900faac",
+      "after_sha256": "21390b239e4615cbdff1451298419780b4fde9b0a06a091421d84dbeae1cab6d",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-07.patch"
+    },
+    {
+      "path": "/system/etc/init/dumpstate.rc",
+      "before_sha256": "e52fefbb05c6c993cedf26466d0c059d1e4f7a036782e385b1164d8eafc9b1f1",
+      "after_sha256": "7ad0befa979d31d552088d871187739bb3e979acbe3ca2f9a7d2d6e504b05b3c",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-08.patch"
+    },
+    {
+      "path": "/system/etc/init/heapprofd.rc",
+      "before_sha256": "fae6c1e7ac1b1c361a6f5533e51e05b8e509c1172e0cf44f400ce4ea4b5c68d7",
+      "after_sha256": "b62546dd449a55022ba8ad6097dc50ba791eb6cca6340dda9239c0f4800c6105",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-09.patch"
+    },
+    {
+      "path": "/system/etc/init/hw/init.rc",
+      "before_sha256": "1f184f0522c3c2aa9bb8511b7abf11c472360ebdd37284cc575352408319d3df",
+      "after_sha256": "24bd4fb6c0511fc30eecf2f0b424486b494a43319b3b939023f80b09f306e514",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-10.patch"
+    },
+    {
+      "path": "/system/etc/init/hwservicemanager.rc",
+      "before_sha256": "587c22ee644d0370403f8421edf94439de637a054fedf71b6d3510abe5d83be2",
+      "after_sha256": "a3d1d2cbdb159c10681cd3d9207d4155034ab22cc4cf4de9a2939af9d2a0281e",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-11.patch"
+    },
+    {
+      "path": "/system/etc/init/idmap2d.rc",
+      "before_sha256": "4dc195022f473d4b93770b441997d7086dfa07de82f73a713167bf6d62596779",
+      "after_sha256": "d6aff3239e75b53d486147701f9c8d70b652df4859986939cc53638176eb6fd8",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-12.patch"
+    },
+    {
+      "path": "/system/etc/init/installd.rc",
+      "before_sha256": "4d81a436ef00b40621ea0b2e4138064e4ef669bd0b27b0cb4ccebdc7720cf91a",
+      "after_sha256": "b2b55aa46b108427e92b2853fc5a834c24ab8a723007ca671a7ce70160024ffc",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-13.patch"
+    },
+    {
+      "path": "/system/etc/init/keystore2.rc",
+      "before_sha256": "4374bdcf0e31e3850df27696a60d5fcaf6ac3ddb5964c5080880bf31f697dab3",
+      "after_sha256": "aa5001c7e58ab14d8592b3a67584b648abf796b38002d2f801e4538532a1f51a",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-14.patch"
+    },
+    {
+      "path": "/system/etc/init/llkd.rc",
+      "before_sha256": "cfd35df8d3829dae4c73f94cb026c2d5e30807c5b94370f928f805b6442ae480",
+      "after_sha256": "cdab312885836946cbc032add7b58e25521a3f55c9f035939ef813a5ce836629",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-15.patch"
+    },
+    {
+      "path": "/system/etc/init/lmkd.rc",
+      "before_sha256": "8d42757df0e9f058a52c52ab1fa9a9069f7d1766e9011815d78be3f9acd8f2ed",
+      "after_sha256": "ba3f96bfa7ce0ee4b01212164cf3f6d0a6ff3c4785e7456f68fd1211b3bb4598",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-16.patch"
+    },
+    {
+      "path": "/system/etc/init/logd.rc",
+      "before_sha256": "ff0c7f55bbc6fec6cc8da29257c23cb2a4ba65b53cd6203628b2242d1fabdfd7",
+      "after_sha256": "db6d50dee74bf0c76f72b97c03379301f601b60cf5ea1cde2e1e9d56d7dd5791",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-17.patch"
+    },
+    {
+      "path": "/system/etc/init/lpdumpd.rc",
+      "before_sha256": "8bc75276337f68cbf977e1bb732e95cde28d5a928f4d3a96155c52c3f5b73b5a",
+      "after_sha256": "630e544613f7e1db6643742e718eca83886e30942735dc708161815b788142de",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-18.patch"
+    },
+    {
+      "path": "/system/etc/init/mediaextractor.rc",
+      "before_sha256": "7c5a7de2e3e8b6b4ee3bc8480d2e956341b812c627886421020092bd617b7cc3",
+      "after_sha256": "713d725448c4daf4cd8edcb5dea0221f3500220bf66a70806280086ba58125d8",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-19.patch"
+    },
+    {
+      "path": "/system/etc/init/mediametrics.rc",
+      "before_sha256": "9a5101b1399525b66ace536a371dd48ee3513c4976f842fef544ed7e52ef2130",
+      "after_sha256": "fdaf4a78456727d9085432678d5463059f0fb2bb9d26b139b85de28c2eb0ec12",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-20.patch"
+    },
+    {
+      "path": "/system/etc/init/mediaserver.rc",
+      "before_sha256": "73c95a8e8e10fcbb3d4d0c92ce87ec920c1c7f26096edf0320fab77a7ac00c39",
+      "after_sha256": "97b97a17e81639dd2eb413cefe4c42aa69ede1c9f45a1d9b0b1c5882c9791703",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-21.patch"
+    },
+    {
+      "path": "/system/etc/init/netd.rc",
+      "before_sha256": "c558bb07806b29035f4d1093422c0e2afc574d3d15aa27654c3525cf8f2ac4cc",
+      "after_sha256": "1eab5478814ed57748d4d7f03be13fa9fc493a30fa81478b4827002dc9819ed7",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-22.patch"
+    },
+    {
+      "path": "/system/etc/init/odsign.rc",
+      "before_sha256": "251584c9838bd57312193e498e20c4516fc6a96fea5332a9c79459a1d8a1aef1",
+      "after_sha256": "dcfbb3d49ef754309a4f5629276db762458f9d198849a9b70576ed9d7c341b90",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-23.patch"
+    },
+    {
+      "path": "/system/etc/init/perfetto.rc",
+      "before_sha256": "22cc246078a0eccc8085cada6343899a665ad333b5faa4c9ba47d6275ae526e1",
+      "after_sha256": "82d5196b0b50504038fd1555959ab004870e89b50fd2ff3e5e9567d46d9a24ca",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-24.patch"
+    },
+    {
+      "path": "/system/etc/init/servicemanager.rc",
+      "before_sha256": "c7a2c3872eaa8f4c054eb682f949a600204d9024e17a6f1d1f63755f2ada4157",
+      "after_sha256": "a163be78e9b797a12c1b23da29f1508a7cd2e4f9ecdbf9668aea52338f2fd9f1",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-25.patch"
+    },
+    {
+      "path": "/system/etc/init/storaged.rc",
+      "before_sha256": "c51225e9f407e23f8099d42dcc7ef956fdcaa29e14d500c84f7fbbe51555af5e",
+      "after_sha256": "9456c2986005d06c3ba72a8033e546f22d84aae248cfd2d9d57a2afa6ce7a60f",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-26.patch"
+    },
+    {
+      "path": "/system/etc/init/surfaceflinger.rc",
+      "before_sha256": "f654d2f950e74e27f5f9a6124a7193769b8cd29b2558d3758580fdf526448cf7",
+      "after_sha256": "76499e9d5d2436b67b1e5b8f16f81249b57700a969b398095a3f33fa1142c650",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-27.patch"
+    },
+    {
+      "path": "/system/etc/init/tombstoned.rc",
+      "before_sha256": "37a8a0377e0f0c84e9224d4a2fabf4520e037ebde05324c1b46481bdb1b1ae1e",
+      "after_sha256": "7b2e4b836c69f61c0121b409395a47985bc621257880f8e23d3367baae676957",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-28.patch"
+    },
+    {
+      "path": "/system/etc/init/traced_perf.rc",
+      "before_sha256": "aa1d4facd0cf59bbbb6528eea4ddfd101d20774e8439e71c9177394b4b4a3cd7",
+      "after_sha256": "4ee2cb84d132f5029f3e0ec04bc6fd38e252440d39568c5a279d31b1a142b819",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-29.patch"
+    },
+    {
+      "path": "/system/etc/init/vdc.rc",
+      "before_sha256": "f5cd9833d92d17e5ca7d871a84f84f78000c68a8f7a8359938dcae7daadc0459",
+      "after_sha256": "870fd49227efad78417ad93788dd331559fdb370a9736c947b83560f248bfbc0",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-30.patch"
+    },
+    {
+      "path": "/system/etc/init/vold.rc",
+      "before_sha256": "7a335a9b58d6be7abbaa5ecf1f7d62ec4d9fb295cd0de69bae198788f8a47705",
+      "after_sha256": "49300ed0bda37cccaca9c8556cbf5c83aef93e8a5eb87b1a794f3b0326af7815",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-31.patch"
+    },
+    {
+      "path": "/system/etc/init/wait_for_keymaster.rc",
+      "before_sha256": "960326cc4eda9d34347feaaee1e1add9f8d1e299242cf15fbd78f6f159bc47d7",
+      "after_sha256": "d8e80039f2cc44ee68b12cd209fb1d7fddbeb87b1b1d122ed31cfdaac46324e6",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-32.patch"
+    },
+    {
+      "path": "/system/etc/init/wificond.rc",
+      "before_sha256": "7ec3ef548e88bcd13577b59239ca88b594454622818e4a9190ad274b1aadee38",
+      "after_sha256": "c4cfb597cbdcfc2da288556f5203b99ef57751c89e6206dab8b30441b453a650",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-33.patch"
+    },
+    {
+      "path": "/system/etc/selinux/plat_file_contexts",
+      "before_sha256": "4089d7000ae2b69f74ed7de4409c0a4aa075cd81de1572f2a0cd82651735dabe",
+      "after_sha256": "b898847b9cc8cffb858d7e8491b499bcd08aa46b078d72e6f5f3c2e4e9dc9ad0",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-34.patch"
+    },
+    {
+      "path": "/system/etc/selinux/plat_property_contexts",
+      "before_sha256": "155f78b0246e58c82633d9e5c082a9e5a439db509bc0ee4ca1f427f0c598323b",
+      "after_sha256": "3a8f75af339b80ad91f3f6b7a9ba97702cd8fdfff55a378cc146141624f437b5",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-35.patch"
+    },
+    {
+      "path": "/system/etc/selinux/plat_service_contexts",
+      "before_sha256": "c3dbdad438343bc296ff212c93bf71f1468a7e805ec0288d6cf13d0fa729c3f6",
+      "after_sha256": "5e31535a757a33a15f4a4f9ef9e6c0536a981756fdff255fa49f34cbcf13d067",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-36.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.audio.service.rc",
+      "before_sha256": "a49f4abea24a69345804310f7e22fda115af1f2ebd1c91959ea756f6420f45c6",
+      "after_sha256": "660c51e646d9f2f7375c9e5acd3f9ea7da47e0440cd2ae454540b8b4b312cc50",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-37.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.bluetooth@1.1-service.sim.rc",
+      "before_sha256": "e47de624e3f80adc7f5cea69c24a8f6c66a6f923512e851d4f78b42eb8516829",
+      "after_sha256": "640d806f9d726e2e4bd3c079c0083414b849f5d63613c9ea077bd613a7ef19b9",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-38.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.camera.provider@2.4-service_64.rc",
+      "before_sha256": "a2b7392048e2bfd145955948ae6e6a4a29dccb99a9809e6cd1c2aa5ffffe9aef",
+      "after_sha256": "29d8cccf92b7f1b3e7a0c91c632202c6010adeb19263e1f07e8b16b5b9659a6c",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-39.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.configstore@1.1-service.rc",
+      "before_sha256": "b659d349489e7f56a4a6f4d7f3995944ee4eab869a665cf98977968d761a52e7",
+      "after_sha256": "b9fae6c54839da427ce018166b7b01de5cc70152980da5ccc606c90584262582",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-40.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.drm@1.0-service.rc",
+      "before_sha256": "6e1aa30187a88a4420c4128b96c1278fb9337036b38415b40d8680f61de2f230",
+      "after_sha256": "72678f0e0eafe386c814b20269217a1db3a2a0b48cba7509cffff47dad156ed3",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-41.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.gatekeeper@1.0-service.software.rc",
+      "before_sha256": "00622afbc149e6652f29eb76f4cb8592359720f67bf5b08bc496e89f6112d0a9",
+      "after_sha256": "5eda78f15014f6a8751736de548fed50faa73e3b804e0a13b7e31747769407a7",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-42.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.gnss@2.0-service.x86.rc",
+      "before_sha256": "0f02300cdf024d3f0df9cff5b825074ea35cd9824541626e9e55ee5a1fffb736",
+      "after_sha256": "b68b6b0a72bc35e4ae48a9ebbcf7f52ba028748981a19463dfef3f11d9875ac5",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-43.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.graphics.allocator@2.0-service.rc",
+      "before_sha256": "a139a3fd898f2c8404efbb51646814a2ec5cb848f8135bbc63d1b829c142037d",
+      "after_sha256": "bb0cc3db58daaa5bc4eb4991d4d6d4b1e87060308a6f83a574e04ce3fdfd4e15",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-44.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.health@2.0-service.rc",
+      "before_sha256": "2c9fd308c5f2e3f0b36300f83780a52350908298e4db14c1d5bab7ac67586e70",
+      "after_sha256": "06ee2edfe091deaa35ebc3e7acfce1a3bd723d0ca46747c6c6ed38132ab31548",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-45.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.keymaster@4.0-service.rc",
+      "before_sha256": "38f94f31c03cc5433d231af6d898681b3c7c34d041232f1105342ae73d32f414",
+      "after_sha256": "1cd5685d79f677f7e0b84cc238f7afa9fbf6351a6c920461f4c345b53ac8a795",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-46.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.power.stats@1.0-service.rc",
+      "before_sha256": "3c0e39ebda64530f1fbf5ab01cec92a6ea93021d1d99119c4dcb753c56a49c40",
+      "after_sha256": "560243770809b2ebe2eba916c07260e6d34aa3d7e139e3b06768d85be2cfa74d",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-47.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.sensors@2.1-service-multihal.rc",
+      "before_sha256": "4acdca6c4016d76ad0845b3b18aa6a85d0856b87a99098bced1c00d9bb68d4b2",
+      "after_sha256": "2382b6c77a01d00d78e0e74f05f7e277cf3c4614ba6da790b57b8acde383fe9b",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-48.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.vibrator@1.0-service.rc",
+      "before_sha256": "6d8a7f5b335af2f3aee5cbf2cdb493e5aec13b7505e4f4e0385f4aa9df30916c",
+      "after_sha256": "ba75cbf89bf61a927aa133dc8e7eca9fae609b1213e5e2cd24554eb022ec3c4a",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-49.patch"
+    },
+    {
+      "path": "/vendor/etc/init/android.hardware.wifi@1.0-service.rc",
+      "before_sha256": "3479d566b69e4a09b43bb6fc82e406d1b328a141b24fd9bf316a70cb03fd02ef",
+      "after_sha256": "dcd7936a1667dc36fb1fdab4cc0bae53670a31746a80702b709a3c12f1b57c78",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-50.patch"
+    },
+    {
+      "path": "/vendor/etc/init/rild.rc",
+      "before_sha256": "8a2721ba9219a5d3e70f81896faa956e968fbaa77f7cbeb2b16dea601fae11c3",
+      "after_sha256": "ad28cd1262d93a658cec807cb326d6c687e8dede7bd8ca5791ca34eb9aac2e6b",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-51.patch"
+    }
+  ],
+  "policy_path": "/vendor/etc/selinux/precompiled_sepolicy",
+  "policy_before_sha256": "438989426d2f1200db8ec9e06861cff39e3346e89650c40f42c7920bbfa2e4f5",
+  "policy_rules": "profiles/mumu-pro-1.9.2-arm64/hardening/policy.rules",
+  "policy_tool": {
+    "apk": {
+      "url": "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk",
+      "sha256": "f511bd33d3242911d05b0939f910a3133ef2ba0e0ff1e098128f9f3cd0c16610"
+    },
+    "member": "lib/arm64-v8a/libmagiskpolicy.so",
+    "sha256": "e1c4a2677b78c7fc79771b804bcd97ccb6d960bcad5d539b56e783d8c59cc0f5",
+    "source_commit": "2c6adbc69ba0e5dce09cd13c6d9aca5de30efe76"
+  },
+  "offline_label_trees": [
+    "/etc/mumu-configs/java_patch",
+    "/etc/mumu-configs/shared_libs"
+  ],
+  "boot_files": {
+    "labels.sh": "profiles/mumu-pro-1.9.2-arm64/hardening/labels.sh",
+    "guard.sh": "profiles/mumu-pro-1.9.2-arm64/hardening/guard.sh",
+    "mark-boot.sh": "profiles/mumu-pro-1.9.2-arm64/hardening/mark-boot.sh",
+    "ksu-mumu-policy.rc": "profiles/mumu-pro-1.9.2-arm64/hardening/ksu-mumu-policy.rc"
+  },
+  "explicit_system_labels": {
+    "/system/bin/awk": "u:object_r:toolbox_exec:s0",
+    "/system/bin/ip": "u:object_r:mumu_net_exec:s0",
+    "/vendor/bin/hw/android.hardware.bluetooth@1.1-service.sim": "u:object_r:hal_bluetooth_default_exec:s0",
+    "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service.software": "u:object_r:hal_gatekeeper_default_exec:s0",
+    "/vendor/bin/hw/android.hardware.gnss@2.0-service.x86": "u:object_r:hal_gnss_default_exec:s0",
+    "/vendor/bin/hw/android.hardware.power.stats@1.0-service.mock": "u:object_r:hal_power_stats_default_exec:s0",
+    "/system/bin/opengl-gc": "u:object_r:mumu_opengl_exec:s0"
+  },
+  "compiled_policy_sha256": "e52e0fd1d9d6a26c9c663144386fc0733dfdb6eb221e3420f7243af18bc8ca28"
+}

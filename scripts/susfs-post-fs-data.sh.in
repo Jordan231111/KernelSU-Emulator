@@ -1,0 +1,38 @@
+#!/system/bin/sh
+# MuMu-specific SUSFS engine. No filesystem-mounting metamodule is required.
+set -eu
+MODDIR=${0%/*}
+mkdir -p /data/adb/ksu-emulator
+exec >>/data/adb/ksu-emulator/susfs.log 2>&1
+echo "MuMu SUSFS startup: $(date -u)"
+setprop sys.ksu_mumu.susfs_ready 0
+state=/data/adb/ksu-emulator/susfs-pending
+boot=$(cat /proc/sys/kernel/random/boot_id)
+if [ -f "$state" ] && [ "$(cat "$state")" != "$boot" ]; then
+    echo 'A previous SUSFS boot did not finish; leaving the engine disabled for recovery.'
+    setprop sys.ksu_mumu.susfs_fallback previous-boot
+    exit 1
+fi
+[ "$(cat /proc/sys/kernel/osrelease)" = '@KERNEL_RELEASE@' ] || exit 20
+[ "$(cat /proc/sys/kernel/version)" = '@KERNEL_VERSION@' ] || exit 21
+[ "$(sha256sum /proc/config.gz | cut -d ' ' -f 1)" = '@CONFIG_SHA256@' ] || exit 22
+[ "$(sha256sum /system/lib/modules/@KERNEL_RELEASE@/extra/vaddress.ko | cut -d ' ' -f 1)" = '@VENDOR_SHA256@' ] || exit 23
+cd "$MODDIR"
+sha256sum -c payload.sha256 || exit 24
+# The official daemon's bundled GKI modules do not target MuMu's 4.19 ABI.
+/data/adb/ksud susfs autoload disable
+if /data/adb/ksud susfs support >/dev/null 2>&1; then
+    echo 'Another SUSFS engine is already active; refusing a duplicate load.'
+    exit 25
+fi
+printf '%s' "$boot" >"$state"
+/data/adb/ksud insmod "$MODDIR/susfs_guard_lkm.ko" enable_log=0 su_ctx=u:r:ksu:s0
+[ "$(/data/adb/ksud susfs version)" = '@SUSFS_VERSION@' ] || exit 26
+[ "$(/data/adb/ksud susfs variant)" = NON-GKI ] || exit 27
+echo 'add kernelsu' >/proc/susfs_hide_modules
+for path in /data/adb /system/etc/ksu-emulator /system/etc/init/ksu-emulator.rc /system/etc/ksu-mumu-policy /system/etc/init/ksu-mumu-policy.rc; do
+    if [ -e "$path" ]; then echo "add $path" >/proc/susfs_path; fi
+done
+"$MODDIR/susfs-sc" 0x55561 0100000000000000
+setprop sys.ksu_mumu.susfs_ready 1
+echo 'MuMu SUSFS ready'

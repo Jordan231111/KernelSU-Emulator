@@ -1,0 +1,8 @@
+--- a/target
++++ b/target
+@@ -1,4 +1,5 @@
+ service system_suspend /system/bin/hw/android.system.suspend@1.0-service
++    seclabel u:r:system_suspend:s0
+     class early_hal
+     user system
+     group system wakelock

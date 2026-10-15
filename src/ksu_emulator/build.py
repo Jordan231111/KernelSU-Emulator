@@ -9,8 +9,9 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from .bundle import RECIPE_FILES, finish_bundle, recipe_hashes
-from .common import ROOT, Error, load_profile, sha256
+from .bundle import finish_bundle, recipe_files, recipe_hashes
+from .common import PROFILE_ID, ROOT, Error, load_profile, save_json, sha256
+from .profiles import build_settings, status
 
 
 def download(source: dict, cache: Path) -> Path:
@@ -46,11 +47,15 @@ def extract_source(archive: Path, destination: Path) -> None:
             shutil.move(str(child), destination / child.name)
 
 
-def build(output: Path) -> dict:
-    profile = load_profile()
-    inputs = recipe_hashes()
+def build(output: Path | None = None, profile_id: str = PROFILE_ID) -> dict:
+    profile = load_profile(profile_id)
+    inputs = recipe_hashes(profile)
+    output = output or ROOT / "out" / profile_id
+    print(f"Profile: {profile_id} ({status(profile)})", flush=True)
     output = output.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
+    # A failed rebuild must not leave an old manifest claiming the output is complete.
+    (output / "manifest.json").unlink(missing_ok=True)
     cache = ROOT / ".work/cache"
     sources = {}
     for key, source in profile["sources"].items():
@@ -62,6 +67,8 @@ def build(output: Path) -> dict:
         work = Path(work)
         extract_source(sources["kernel"], work / "kernel")
         extract_source(sources["kernelsu"], work / "kernelsu")
+        save_json(work / "build-plan.json", {"build": build_settings(profile),
+                  "ksu_version": profile["ksu_version"], "ksu_tag": profile["ksu_tag"]})
         print("Building Linux toolchain container...", flush=True)
         result = subprocess.run(["docker", "build", "-t", "ksu-emulator-toolchain:22.04", "-f", str(ROOT / "scripts/Dockerfile"), str(ROOT / "scripts")], check=False)
         if result.returncode:
@@ -72,21 +79,21 @@ def build(output: Path) -> dict:
         result = subprocess.run([
             "docker", "run", "--rm", *user_args, "-v", f"{ROOT}:/src:ro", "-v", f"{work}:/build",
             "-v", f"{output}:/out", "ksu-emulator-toolchain:22.04",
-            "bash", "/src/scripts/build-in-container.sh", profile["id"],
+            "bash", "/src/scripts/build-in-container.sh", "/build/build-plan.json",
         ], check=False)
         if result.returncode:
             raise Error("KernelSU build failed; no verified manifest was produced")
     shutil.copyfile(sources["manager"], output / "manager.apk")
     with zipfile.ZipFile(sources["manager"]) as apk:
         (output / "ksud").write_bytes(apk.read("lib/arm64-v8a/libksud.so"))
-    if recipe_hashes() != inputs:
+    if recipe_hashes(profile) != inputs:
         raise Error("Build inputs changed during compilation; rebuild before publishing a manifest")
     source_dir = output / "sources"
     source_dir.mkdir(exist_ok=True)
     for name in ("kernel", "kernelsu", "userspace"):
         shutil.copyfile(sources[name], source_dir / (name + ".tar.gz"))
     with tarfile.open(source_dir / "recipe.tar.gz", "w:gz") as archive:
-        for name in (*RECIPE_FILES, "LICENSE", "NOTICE.md", "README.md", "patches/LICENSE-GPL-2.0", "patches/README.md"):
+        for name in (*recipe_files(profile), "LICENSE", "NOTICE.md", "README.md", "patches/LICENSE-GPL-2.0", "patches/README.md"):
             archive.add(ROOT / name, arcname=name)
         archive.add(ROOT / "ksu.py", arcname="ksu.py")
         for path in sorted((ROOT / "src").rglob("*.py")):

@@ -1,0 +1,38 @@
+--- a/target
++++ b/target
+@@ -450,7 +450,7 @@
+     start vold
+ 
+ on post-fs
+-    exec - system system -- /system/bin/vdc checkpoint markBootAttempt
++    exec u:r:vdc:s0 system system -- /system/bin/vdc checkpoint markBootAttempt
+ 
+     # Once everything is setup, no need to modify /.
+     # The bind+remount combination allows this to work in containers.
+@@ -540,7 +540,7 @@
+ 
+     mkdir /data/misc 
+     # Start checkpoint before we touch data
+-    exec - system system -- /system/bin/vdc checkpoint prepareCheckpoint
++    exec u:r:vdc:s0 system system -- /system/bin/vdc checkpoint prepareCheckpoint
+ 
+     # We chown/chmod /data again so because mount is run as root + defaults
+     chown system system /data
+@@ -592,7 +592,7 @@
+     # and access its database for the first time to support creation and
+     # use of MAX_BOOT_LEVEL keys.
+     #exec_background - system system -- /system/bin/vdc keymaster earlyBootEnded
+-    exec - system system -- /system/bin/vdc keymaster earlyBootEnded
++    exec u:r:vdc:s0 system system -- /system/bin/vdc keymaster earlyBootEnded
+ 
+     # /data/apex is now available. Start apexd to scan and activate APEXes.
+     #
+@@ -1045,7 +1045,7 @@
+     group root readproc reserved_disk
+     socket zygote stream 660 root system
+     socket usap_pool_primary stream 660 root system
+-    onrestart exec_background - system system -- /system/bin/vdc volume abort_fuse
++    onrestart exec_background u:r:vdc:s0 system system -- /system/bin/vdc volume abort_fuse
+     onrestart write /sys/power/state on
+     onrestart restart audioserver
+     onrestart restart cameraserver

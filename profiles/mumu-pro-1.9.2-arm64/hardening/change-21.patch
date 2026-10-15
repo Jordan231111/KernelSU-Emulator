@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -2,6 +2,7 @@
+     setprop init.svc.mediadrm ${init.svc.media}
+ 
+ service media /system/bin/mediaserver
++    seclabel u:r:mediaserver:s0
+     class main
+     user media
+     group audio camera inet net_bt net_bt_admin net_bw_acct drmrpc mediadrm

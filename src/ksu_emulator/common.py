@@ -35,9 +35,8 @@ def sha256(path: Path) -> str:
 
 
 def load_profile(profile_id: str = PROFILE_ID) -> dict:
-    if profile_id != PROFILE_ID:
-        raise Error(f"No verified profile for {profile_id}")
-    return json.loads((ROOT / "profiles" / profile_id / "profile.json").read_text())
+    from .profiles import read_profile
+    return read_profile(profile_id)
 
 
 def save_json(path: Path, value: dict) -> None:

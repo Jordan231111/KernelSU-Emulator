@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -35,6 +35,7 @@
+     start llkd-${ro.debuggable:-0}
+ 
+ service llkd-0 /system/bin/llkd
++    seclabel u:r:llkd:s0
+     class late_start
+     disabled
+     user llkd

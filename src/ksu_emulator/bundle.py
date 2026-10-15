@@ -5,19 +5,24 @@ from pathlib import Path
 
 from .common import ROOT, Error, load_profile, save_json, sha256
 from .elf import module_info
+from .profiles import build_settings, expected_vermagic
 
 FILES = {"kernelsu.ko", "ksud", "ksu-probe", "manager.apk", "boot.sh", "ksu-emulator.rc", "payload.sha256"}
 SYSTEM_FILES = {"kernelsu.ko", "ksud", "ksu-probe", "boot.sh", "payload.sha256"}
-RECIPE_FILES = (
-    "patches/mumu-task-layout.patch", "patches/kernelsu-next-mumu.patch",
-    "scripts/build-in-container.sh", "scripts/Dockerfile", "native/ksu_probe.c",
+BASE_RECIPE_FILES = (
+    "scripts/build-in-container.sh", "scripts/build_module.py", "scripts/Dockerfile", "native/ksu_probe.c",
     "scripts/boot.sh.in", "scripts/ksu-emulator.rc",
-    "profiles/mumu-pro-1.9.2-arm64/kernel.config", "profiles/mumu-pro-1.9.2-arm64/profile.json",
 )
 
 
-def recipe_hashes() -> dict:
-    return {name: sha256(ROOT / name) for name in RECIPE_FILES}
+def recipe_files(profile: dict) -> tuple:
+    settings = build_settings(profile)
+    return tuple(dict.fromkeys((*BASE_RECIPE_FILES, settings["kernel_config"],
+        f"profiles/{profile['id']}/profile.json", *settings["kernel_patches"], *settings["module_patches"])))
+
+
+def recipe_hashes(profile: dict | None = None) -> dict:
+    return {name: sha256(ROOT / name) for name in recipe_files(profile or load_profile())}
 
 
 def finish_bundle(directory: Path, profile: dict) -> dict:
@@ -40,7 +45,7 @@ def finish_bundle(directory: Path, profile: dict) -> dict:
         "schema": 1,
         "profile": profile,
         "files": {name: sha256(directory / name) for name in sorted(FILES)},
-        "recipe": recipe_hashes(),
+        "recipe": recipe_hashes(profile),
         "source_archives": {name: sha256(directory / "sources" / name) for name in (
             "kernel.tar.gz", "kernelsu.tar.gz", "userspace.tar.gz", "recipe.tar.gz",
         )},
@@ -77,8 +82,7 @@ def validate_bundle(directory: Path) -> dict:
             if source != "recipe" and digest != profile["sources"][source]["sha256"]:
                 raise Error(f"Source archive is not pinned: {name}")
         info = module_info((directory / "kernelsu.ko").read_bytes())
-        expected_vermagic = profile["kernel_release"] + " SMP preempt mod_unload aarch64"
-        if info["vermagic"].strip() != expected_vermagic:
+        if info["vermagic"].strip() != expected_vermagic(profile):
             raise Error("Kernel module vermagic does not match the profile")
         if info["absolute_symbols"]:
             raise Error("Module is already bound to runtime addresses; supply the unbound build")

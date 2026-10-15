@@ -1,0 +1,18 @@
+# Called by the standard KernelSU module installer.
+ui_print '- Checking the MuMu kernel and vendor driver'
+[ -x /data/adb/ksud ] || abort 'KernelSU Next is required'
+[ "$(getprop sys.ksu_emulator.ready)" = 1 ] || abort 'Install the KernelSU-Emulator base first'
+[ "$(cat /proc/sys/kernel/osrelease)" = '@KERNEL_RELEASE@' ] || abort 'Unsupported kernel release'
+[ "$(cat /proc/sys/kernel/version)" = '@KERNEL_VERSION@' ] || abort 'Unsupported kernel build'
+[ "$(sha256sum /proc/config.gz | cut -d ' ' -f 1)" = '@CONFIG_SHA256@' ] || abort 'Kernel configuration differs'
+[ "$(sha256sum /system/lib/modules/@KERNEL_RELEASE@/extra/vaddress.ko | cut -d ' ' -f 1)" = '@VENDOR_SHA256@' ] || abort 'Vendor driver differs'
+cd "$MODPATH" || abort 'Module directory is unavailable'
+sha256sum -c payload.sha256 || abort 'Module payload integrity check failed'
+set_perm_recursive "$MODPATH" 0 0 0755 0644
+set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
+set_perm "$MODPATH/susfs-sc" 0 0 0755
+set_perm "$MODPATH/boot-completed.sh" 0 0 0755
+/data/adb/ksud susfs autoload disable || abort 'Cannot disable the incompatible bundled GKI loader'
+rm -f /data/adb/ksu-emulator/susfs-pending
+ui_print '- Ready for a full MuMu stop/start'
+ui_print '- This engine is pinned until reboot; disabling/removal takes effect at the next cold boot'

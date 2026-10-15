@@ -1,0 +1,15 @@
+--- a/target
++++ b/target
+@@ -1230,3 +1230,12 @@
+ 
+ # dck properties
+ ro.gms.dck.eligible_wcc u:object_r:dck_prop:s0 exact int
++
++nemud.disable_audio_out u:object_r:mumu_control_prop:s0 exact bool
++
++ts_ u:object_r:mumu_boot_timing_prop:s0 prefix string
++
++nemud.display_abnormal u:object_r:mumu_control_prop:s0 exact string
++
++nemud. u:object_r:mumu_control_prop:s0 prefix string
++vendor.wlan.driver.version u:object_r:mumu_wifi_info_prop:s0 exact string

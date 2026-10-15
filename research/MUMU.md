@@ -91,3 +91,7 @@ The root toggle is used only to bootstrap installation. With it disabled, ADB re
 Android Studio's emulator supports selecting a kernel explicitly with `-kernel`, which makes custom GKI/rebuilt-kernel experiments straightforward compared with MuMu's resource layout. The connected local Android Studio instance used Android 15 / ARM64 / kernel 6.6; it was inspected but not modified. [Android Emulator command-line reference](https://developer.android.com/studio/run/emulator-commandline).
 
 Windows MuMu uses a different architecture and boot layout. Windows Android 15 versions have also been reported with a vendor KernelSU implementation; that is not evidence of compatibility with this macOS module. Windows installation is not implemented here. Modern x86_64 kernel syscall hardening introduces additional KernelSU-specific requirements, documented upstream. [KernelSU x86_64 support](https://kernelsu.org/guide/x86_64-support.html).
+
+## Subsequent enforcement and SUSFS work
+
+The core installer still preserves the vendor mode described above. The separate `enhance-clone` workflow now repairs the vendor policy/labels and provides genuine enforcement with an independently ported SUSFS LKM. See [the implementation and limitations](../docs/SELINUX-SUSFS.md) and [validation](../docs/VALIDATION.md).

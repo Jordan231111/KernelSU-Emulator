@@ -1,0 +1,9 @@
+--- a/target
++++ b/target
+@@ -1,5 +1,6 @@
+ 
+ service installd /system/bin/installd
++    seclabel u:r:installd:s0
+     class main
+ 
+ on early-boot

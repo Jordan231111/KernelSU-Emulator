@@ -1,0 +1,8 @@
+--- a/target
++++ b/target
+@@ -1,4 +1,5 @@
+ service hwservicemanager /system/bin/hwservicemanager
++    seclabel u:r:hwservicemanager:s0
+     user system
+     disabled
+     group system readproc

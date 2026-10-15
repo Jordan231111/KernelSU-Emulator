@@ -1,0 +1,18 @@
+--- a/target
++++ b/target
+@@ -12,6 +12,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ service heapprofd /system/bin/heapprofd
++    seclabel u:r:heapprofd:s0
+     class late_start
+     disabled
+     socket heapprofd stream 0666 root root
+@@ -28,6 +29,7 @@
+ # Allow to start a second heapprofd. We can use that one to profile the
+ # primary one. See src/memory/profiling/README.md.
+ service heapprofd_secondary /system/bin/heapprofd
++    seclabel u:r:heapprofd:s0
+     disabled
+     oneshot
+     socket heapprofd stream 0666 root root

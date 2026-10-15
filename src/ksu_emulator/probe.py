@@ -2,22 +2,33 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import shlex
 
 from .common import Error
 from .mumu import Adb
 
 
-def probe(adb: Adb) -> dict:
-    result = {"serial": adb.serial}
+def probe(adb: Adb, root: bool = False) -> dict:
+    result = {"serial": adb.serial, "adb_uid": adb.shell("id -u"), "privileged_reads": root}
+    read = adb.su if root else adb.shell
+    reported_release = read("uname -r")
+    reported_version = read("uname -v")
+    for key, path, fallback in (("kernel_release", "osrelease", reported_release),
+                                ("kernel_version", "version", reported_version)):
+        try:
+            result[key] = read("cat /proc/sys/kernel/" + path)
+        except Error:
+            result[key] = fallback
+            result["identity_read_fallback"] = "uname (kernel sysctl access was denied)"
     for key, command in {
-        "kernel_release": "uname -r", "kernel_version": "uname -v", "architecture": "uname -m",
-        "android_version": "getprop ro.build.version.release", "adb_uid": "id -u",
+        "architecture": "uname -m", "android_version": "getprop ro.build.version.release",
         "selinux": "getenforce", "boot_completed": "getprop sys.boot_completed",
         "installer_ready": "getprop sys.ksu_emulator.ready",
     }.items():
-        result[key] = adb.shell(command)
+        result[key] = read(command)
+    result["reported_uname_release"] = reported_release
     try:
-        config_bytes = adb.bytes("cat /proc/config.gz")
+        config_bytes = adb.bytes("su -c " + shlex.quote("cat /proc/config.gz") if root else "cat /proc/config.gz")
         config = gzip.decompress(config_bytes).decode()
         result["config_gz_sha256"] = hashlib.sha256(config_bytes).hexdigest()
         flags = {}
@@ -31,15 +42,15 @@ def probe(adb: Adb) -> dict:
         )}
     except (Error, ValueError, OSError) as exc:
         result["config_error"] = str(exc)
-    result["kernel_modules"] = adb.shell("cat /proc/modules", check=False)
+    result["kernel_modules"] = read("cat /proc/modules", check=False)
     return result
 
 
-def validate_guest(evidence: dict, profile: dict) -> None:
+def validate_guest(evidence: dict, profile: dict, *, require_bootstrap_root: bool = True) -> None:
     for key in ("kernel_release", "kernel_version", "architecture", "android_version", "config_gz_sha256"):
         if evidence.get(key) != profile[key]:
             raise Error(f"Guest {key} does not match the tested profile: {evidence.get(key)!r}")
-    if evidence["adb_uid"] != "0":
+    if require_bootstrap_root and evidence["adb_uid"] != "0":
         raise Error("Bootstrap ADB root is required for installation")
     if evidence.get("config", {}).get("CONFIG_MODULES") != "y":
         raise Error("Kernel cannot load modules")

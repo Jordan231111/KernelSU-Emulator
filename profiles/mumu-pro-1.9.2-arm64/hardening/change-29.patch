@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -21,6 +21,7 @@
+ #   opening libraries/executables for sections not already mapped in).
+ # * foreground task group as unwinding based on minidebug info is a heavyweight action.
+ service traced_perf /system/bin/traced_perf
++    seclabel u:r:traced_perf:s0
+     class late_start
+     disabled
+     socket traced_perf stream 0666 root root

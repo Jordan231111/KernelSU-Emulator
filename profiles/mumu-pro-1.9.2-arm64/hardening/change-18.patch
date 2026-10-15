@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -15,6 +15,7 @@
+ #
+ 
+ service lpdumpd /system/bin/lpdumpd
++    seclabel u:r:lpdumpd:s0
+     # TODO(b/129011369): make this killable by lmkd
+     oneshot
+     disabled

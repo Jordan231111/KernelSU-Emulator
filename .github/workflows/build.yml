@@ -1,6 +1,17 @@
 name: Build MuMu module
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Checked-in compatibility profile ID (candidate builds remain candidates)
+        required: true
+        default: mumu-pro-1.9.2-arm64
+        type: string
+      susfs:
+        description: Also build this profile's matched SUSFS module
+        required: true
+        default: true
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -12,10 +23,18 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
-      - run: python ksu.py build
-      - run: python ksu.py check-bundle out/mumu-pro-1.9.2-arm64
+      - run: python ksu.py build --profile "$BUILD_PROFILE" --output out/ci-bundle/core
+        env:
+          BUILD_PROFILE: ${{ inputs.profile }}
+      - run: python ksu.py check-bundle out/ci-bundle/core
+      - if: ${{ inputs.susfs }}
+        run: python ksu.py build-susfs --profile "$BUILD_PROFILE" --output out/ci-bundle/susfs
+        env:
+          BUILD_PROFILE: ${{ inputs.profile }}
+      - if: ${{ inputs.susfs }}
+        run: python ksu.py check-susfs-bundle out/ci-bundle/susfs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mumu-pro-1.9.2-arm64
-          path: out/mumu-pro-1.9.2-arm64/
+          name: mumu-profile-bundles
+          path: out/ci-bundle/
           if-no-files-found: error

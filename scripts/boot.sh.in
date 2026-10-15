@@ -16,7 +16,12 @@ if grep -q '^kernelsu ' /proc/modules; then
 fi
 ./ksud insmod ./kernelsu.ko allow_shell=0 norc=1
 ./ksud install
-[ "$(./ksud debug version)" = 'Kernel Version: @KSU_VERSION@' ] || exit 25
-./ksud post-fs-data
+# The init exec hook recognizes this absolute path and enters the ksu domain.
+# A relative ./ksud call leaves early helpers in init/toolbox under enforcing.
+[ "$(/data/adb/ksud debug version)" = 'Kernel Version: @KSU_VERSION@' ] || exit 25
+/data/adb/ksud post-fs-data
+# Report real SELinux behavior, including a hardening recovery fallback.
+/data/adb/ksud feature set 4 0
+/data/adb/ksud feature set 10003 0
 setprop sys.ksu_emulator.ready 1
 echo 'KernelSU-Emulator ready'

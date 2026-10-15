@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "mumu-susfs-1.9.2-arm64",
+  "base_profile": "mumu-pro-1.9.2-arm64",
+  "status": "verified",
+  "module_id": "mumu_susfs",
+  "module_version": "1.0.0",
+  "module_version_code": 10000,
+  "susfs_version": "v2.3.0",
+  "source_commit": "0b197bfd3d3402ee108e19c66ed3293d9d14481a",
+  "source": {
+    "url": "https://codeload.github.com/inforcqb/susfs4ksu-lkm/tar.gz/0b197bfd3d3402ee108e19c66ed3293d9d14481a",
+    "sha256": "9b76bd417d6ed3827613a90574854ea564de5913ab3d8e8453c42e65f907bad8"
+  },
+  "patches": [
+    "patches/susfs-lkm-mumu.patch"
+  ],
+  "normalize_line_endings": [
+    "kernel/sus_path.c"
+  ],
+  "kernel_symbols": "profiles/mumu-pro-1.9.2-arm64/kernel-symbols.txt"
+}

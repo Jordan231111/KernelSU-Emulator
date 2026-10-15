@@ -1,0 +1,8 @@
+--- a/target
++++ b/target
+@@ -1,4 +1,5 @@
+ service surfaceflinger /system/bin/surfaceflinger
++    seclabel u:r:surfaceflinger:s0
+     class core animation
+     user system
+     group graphics drmrpc readproc

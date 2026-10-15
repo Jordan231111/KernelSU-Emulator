@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ 
+ service statsd /apex/com.android.os.statsd/bin/statsd
++    seclabel u:r:statsd:s0
+     class main
+     socket statsdw dgram+passcred 0222 statsd statsd
+     user statsd

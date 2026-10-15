@@ -1,0 +1,8 @@
+--- a/target
++++ b/target
+@@ -1,4 +1,5 @@
+ service vendor.power.stats-hal-1-0-mock /vendor/bin/hw/android.hardware.power.stats@1.0-service.mock
++    seclabel u:r:hal_power_stats_default:s0
+     interface android.hardware.power.stats@1.0::IPowerStats default
+     class hal
+     user system

@@ -1,0 +1,10 @@
+--- a/target
++++ b/target
+@@ -7,6 +7,7 @@
+ # See system/core/init/README.md for information on the init.rc language.
+ 
+ service keystore2 /system/bin/keystore2 /data/misc/keystore
++    seclabel u:r:keystore:s0
+     class early_hal
+     user keystore
+     group keystore readproc log
