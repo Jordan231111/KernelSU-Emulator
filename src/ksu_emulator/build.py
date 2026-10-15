@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tarfile
@@ -66,8 +67,10 @@ def build(output: Path) -> dict:
         if result.returncode:
             raise Error("Toolchain container build failed")
         print("Building the MuMu-specific KernelSU module...", flush=True)
+        # Keep build/output files owned by the caller on Linux bind mounts.
+        user_args = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
         result = subprocess.run([
-            "docker", "run", "--rm", "-v", f"{ROOT}:/src:ro", "-v", f"{work}:/build",
+            "docker", "run", "--rm", *user_args, "-v", f"{ROOT}:/src:ro", "-v", f"{work}:/build",
             "-v", f"{output}:/out", "ksu-emulator-toolchain:22.04",
             "bash", "/src/scripts/build-in-container.sh", profile["id"],
         ], check=False)

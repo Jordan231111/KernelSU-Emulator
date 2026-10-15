@@ -48,7 +48,7 @@ Open **KernelSU Next** inside the emulator to grant root to individual apps. To 
 python3 ksu.py verify --instance 2 --root
 ```
 
-`--keep-vendor-root` is available for development. The normal installation disables it. Manager boot-image installation and kernel updates are not supported on this custom layout; update the module through a matching repository build.
+`--keep-vendor-root` is available for development. The normal installation disables it. Manager boot-image installation and kernel updates are not supported on this custom layout. Use a fresh instance for a new profile/build; in-place upgrades are not implemented.
 
 ## Recovery
 
