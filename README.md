@@ -23,6 +23,8 @@ See [research and patch rationale](research/MUMU.md), [validation results](docs/
 
 Requirements: Python **3.11.8+**, Docker with a running engine, Android Platform Tools (`adb`), `qemu-img`, and MuMuPlayer Pro. Keep the MuMu launcher open. Docker is used for building; installation uses MuMu's command-line tool and ADB.
 
+**Prebuilt option:** download the matching bundle from [Releases](https://github.com/Jordan231111/KernelSU-Emulator/releases), extract its `mumu-pro-1.9.2-arm64` directory into this repository's `out/`, and skip `python3 ksu.py build`. Docker is not required when using that bundle.
+
 ```sh
 git clone https://github.com/Jordan231111/KernelSU-Emulator.git
 cd KernelSU-Emulator

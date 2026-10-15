@@ -18,6 +18,7 @@ Target: MuMuPlayer Pro 1.9.2, Apple Silicon, Android 12, kernel `4.19.195-androi
 | Cold boot persistence | Init hook loads the module and reports ready across full stop/start cycles |
 | KernelSU module scripts | Smoke module ran post-fs-data, service, and boot-completed once for the same boot ID |
 | Clean build | Pinned sources + included patches built in a fresh Docker toolchain container |
+| GitHub cross-build | Linux x86_64 runner produced a byte-identical ARM64 kernel module; its native control probe was also executed successfully in MuMu |
 | Automated installer | Completed on a separate fresh instance, including two cold boots and vendor-root shutdown |
 | State-change handling | Installation aborted on a changed device state and automatically restored its system/settings |
 | Explicit recovery | Restored a pre-existing private system disk; a baseline marker survived; KernelSU and its manager were removed; original root/writability settings were restored |
@@ -44,6 +45,12 @@ The smoke module contained no system replacements and required no metamodule. Fi
 The unit suite exercises ELF metadata parsing, malformed and truncated ELF rejection, archive path traversal rejection, exact guest identity checks, explicit instance selection, bundle integrity gates, and recovery identity/backup checks. Shell scripts pass syntax checks and Python modules compile.
 
 GitHub CI runs host checks on Linux, macOS, and Windows. Those jobs do not imply Windows MuMu support. The manual build workflow cross-compiles the ARM64 module on Linux. Guest runtime testing requires the actual verified MuMu image.
+
+The validated release module SHA-256 is:
+
+```text
+b97e681d79d41cbf0c69bf8a494f4e0dc647f6241005f99ccc3ab8a0fe60dc76
+```
 
 ## Limits of this validation
 
