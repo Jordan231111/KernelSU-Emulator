@@ -12,7 +12,7 @@ done
 mount -o remount,ro /
 # MuMu rewrites normal /system paths for some processes. PID 1's root
 # reaches the private writable system mount and the actual vendor files.
-find /proc/1/root/system/etc/mumu-configs/java_patch /proc/1/root/system/etc/mumu-configs/shared_libs -exec ls -Zd {} \; | awk '$1 != "u:object_r:system_file:s0" { bad=1; print "Unexpected system label: " $0 } END { exit bad }' 
+find /proc/1/root/system/etc/mumu-configs/java_patch /proc/1/root/system/etc/mumu-configs/shared_libs -exec ls -Zd {} \; | awk '$1 != "u:object_r:system_file:s0" { bad=1; print "Unexpected system label: " $0 } END { exit bad }'
 [ "$(ls -Zd /proc/1/root/system/etc/mumu-configs/currentApp | cut -d ' ' -f 1)" = u:object_r:mumu_runtime_config_file:s0 ]
 for item in /data/system/etc/mumu-configs /data/tombstones/app; do
     if [ -d "$item" ]; then restorecon -RF "$item"; fi
