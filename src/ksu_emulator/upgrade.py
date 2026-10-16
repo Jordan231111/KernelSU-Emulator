@@ -58,8 +58,8 @@ def upgrade(mumu: MuMu, index: int, old_bundle: Path, new_bundle: Path,
         hardened = adb.su("if [ -e /system/etc/ksu-mumu-policy/state.json ]; then echo installed; fi") == "installed"
         if hardened:
             from .hardening import wait_hardening
-            if not wait_hardening(mumu, index, old["profile"]["id"])["verified"]:
-                raise Error("Resolve the existing SELinux configuration before updating the core")
+            from .startup import migrate_hardening_startup
+            record["startup_migration"] = migrate_hardening_startup(mumu, index, profile["id"])
         suffix = uuid.uuid4().hex
         stage = "/data/local/tmp/ksu-upgrade-" + suffix
         pending = remote + "-pending-" + suffix

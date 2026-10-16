@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "previous": [
+    {
+      "release": "v1.0.1",
+      "recipe_sha256": "d48bcc1befdc26f48ddd9322e0d7157b205f7706ed039f6ba3d6e6e8f12715aa",
+      "boot_sha256": {
+        "guard.sh": "aa598c89974d658c9da83cbef6f06994313b625bd9ec9f58789f54c5477cc1af"
+      }
+    }
+  ]
+}

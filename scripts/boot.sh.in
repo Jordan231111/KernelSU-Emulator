@@ -20,8 +20,9 @@ fi
 # A relative ./ksud call leaves early helpers in init/toolbox under enforcing.
 [ "$(/data/adb/ksud debug version)" = 'Kernel Version: @KSU_VERSION@' ] || exit 25
 /data/adb/ksud post-fs-data
-# Report real SELinux behavior, including a hardening recovery fallback.
-/data/adb/ksud feature set 4 0
+# post-fs-data loads Manager's saved feature preferences. Leave SELinux hiding
+# under user control; the pinned legacy kernel defaults it on when unset.
+# AVC masking has no connected audit hook in this syscall-table build.
 /data/adb/ksud feature set 10003 0
 setprop sys.ksu_emulator.ready 1
 echo 'KernelSU-Emulator ready'

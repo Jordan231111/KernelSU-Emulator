@@ -4,7 +4,7 @@ base=/data/adb/ksu-emulator
 exec >>"$base/policy.log" 2>&1
 boot=$(cat /proc/sys/kernel/random/boot_id)
 old=$(cat /sys/fs/selinux/enforce)
-/data/adb/ksud feature set 4 0
+# Check the real kernel flag as root; app-facing SELinux hiding is independent.
 /data/adb/ksud feature set 10003 0
 if [ -f "$base/enforcing-pending" ] && [ "$(cat "$base/enforcing-pending")" != "$boot" ]; then
     echo 'A previous enforcing boot did not complete; preserving permissive recovery mode.'

@@ -215,3 +215,20 @@ python3 ksu.py verify-vendor-cleanup --instance 4
 The command requires working authorized KernelSU and matching enforcing repairs. It stops the instance, examines the private ext4 filesystem directly, checks the known helper/startup/APK fingerprints, removes only the reviewed vendor root helpers and startup code, checks the filesystem, atomically replaces the private disk and verifies the next boot. An already clean instance is verified without rewriting the disk.
 
 For a new MuMu version, inspect the real startup files and companion APK before changing hashes. Review which receiver starts root and which service supplies ordinary emulator integration. The current receiver writes a protected su service-status property and crashes when vendor su is absent; the replacement boot script starts the ordinary API service directly. Preserve graphics, input, sensors and platform IPC. Rebase the two exact text patches, fingerprint any new helper binaries, test the service under enforcement, and repeat cleanup plus cold-boot qualification. Do not convert a checksum rejection into an unconditional recursive deletion.
+
+## H. v1.0.1 to v1.0.2: preserve the SELinux-hiding switch
+
+Use the v1.0.2 repository tag and keep the old/new distribution bundles available while updating:
+
+```sh
+python3 ksu.py upgrade --instance 4 \
+  --from-bundle out/releases/v1.0.1/core \
+  --bundle out/releases/v1.0.2/core
+python3 ksu.py verify-hardening --instance 4
+```
+
+Substitute your actual instance index. This is an in-place update; no instance or disk backup is created. The updater recognizes only the fingerprinted v1.0.1 boot recipe in `hardening/startup-migrations.json` and verifies the unchanged policy and system files before replacing `guard.sh` and its state identity. The normal core update replaces `boot.sh` and its payload checksum. SUSFS and the compiled policy are unchanged.
+
+Then choose **Hide SELinux modification** in Next's Settings. Its saved value survives cold boot; unset preferences use the legacy kernel's On default. For scripted maintenance, `ksud feature set 4 1` changes the live setting and `ksud feature save` persists current feature settings. Use value `0` to turn it off. These commands require your existing authorized root shell. Neither value changes real SELinux enforcement.
+
+`verify-hardening` reports both the live and saved hiding values for inspection. Neither is a pass/fail requirement: both are valid user preferences. Enforcement, critical labels, installed hashes and core service health remain mandatory.

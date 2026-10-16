@@ -46,3 +46,19 @@ With enforcement active, the app must report **EACCES**, while UI/input, sensors
 For the root test, launch with the Boolean intent extra `request_root=true`. First leave the app unapproved and confirm denial. Enable **MuMu Policy Probe** in Next's Superuser screen, force-stop/relaunch with that extra, and confirm the report contains UID 0, the `ksu` domain and the expected kernel API version. Its ordinary process must still fail the canary read. Revoke the grant and repeat the denial test. Uninstall the diagnostic APK and remove the canary afterward.
 
 For release qualification, repeat three full host stop/start cycles, query `verify --root`, `verify-hardening` and `verify-susfs`, and cold-launch the app. Check `init.svc.opengl-gc`, SurfaceFlinger and sensorservice; do not accept `sys.boot_completed=1` alone as proof that every driver client is healthy. Test your actual workloads and any added metamodule/Zygisk components separately.
+
+## SELinux hiding and preference persistence
+
+Build the diagnostic APK as above. Build `tests/guest/selinux_probe.c` with an Android NDK ARM64 compiler, for example:
+
+```sh
+mkdir -p out/guest-tests/native
+"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang" \
+  -O2 -static -Wl,--strip-all -Wall -Wextra tests/guest/selinux_probe.c \
+  -o out/guest-tests/native/selinux_probe
+python3 tests/guest/qualify_selinux_hiding.py --instance 4 --leave-on
+```
+
+Use the NDK host directory appropriate to your computer and your explicit instance index. The harness tests hiding On, saved Off after cold boot, and saved On after another cold boot. It checks allowed/invalid/root contexts and an access query from a zero-capability UID 19999 process in the app_zygote domain. A pre-existing memory mapping carries results back because that domain cannot write the root shell's PTY; the tested SELinux interfaces are opened after dropping privileges. This does not grant the probe new policy permissions and does not simulate the entire app-zygote lifecycle.
+
+The real APK separately checks UI, touch, sensors, networking, audio, denied root and the enforcement canary. It records SELinux status if accessible; some ordinary app domains are denied access to that interface. Authorized Shell root, SUSFS, vendor cleanup and all core services are checked in each case. Diagnostic files and the APK are removed afterward. `--leave-on` explicitly selects On at the end; without it, the original live value is saved again. No disk backup or clone is made.

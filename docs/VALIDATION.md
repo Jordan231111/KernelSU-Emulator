@@ -100,3 +100,13 @@ The complete configuration passed real app UI/touch/sensors, DNS/HTTPS, muted au
 Backup/restore and automatic clone functionality, saved original policy files and recovery-receipt requirements have been removed. Disk-edit temporary files are deleted after use. The module binaries are unchanged from v1.0.0; policy, startup, cleanup and host maintenance changed. See [v1.0.1 observations](validation-v1.0.1.json) for measured results. The v1.0.0 record remains historical evidence, not a description of current backup behavior.
 
 After the final cold boot, a further **364-second observation with 13 samples** retained the same boot ID and system_server/nemuinit/SurfaceFlinger PIDs. Every sample was enforcing, and the final uptime was 545 seconds. The nine-service and vendor-cleanup checks passed at the end. This is the measured observation window, not a claim of unlimited uptime.
+
+## v1.0.2 — user-controlled SELinux hiding
+
+The v1.0.1 startup scripts reset SELinux hiding to Off after the official daemon loaded saved preferences. v1.0.2 removes those resets. The official Manager controls the setting; saved On and saved Off both survive cold boots. With no saved choice, the pinned legacy kernel's default is On. The exact previous guard script is migrated during `upgrade`, with unchanged policy/system-file/label checks before writing.
+
+Runtime qualification exercised On, saved Off after cold boot, and saved On after another cold boot. In all three cases, actual enforcement, the nine core services, approved Shell root, denied ordinary-app root, SUSFS startup and vendor cleanup passed. The real Android APK continued rendering, receiving touch/sensor events, playing muted audio and completing HTTPS requests while the SELinux canary remained denied with EACCES.
+
+The separate native app_zygote-domain probe demonstrated a real visibility difference: the KSU context was accepted with hiding Off and rejected with EINVAL with hiding On; a stock context remained valid and an invented context remained invalid. The KSU-related access response and app-visible policy counters were masked only with hiding On. Root retained its real view. The ordinary APK was denied direct access to the SELinux status interface in both modes; no policy exception was added to make that test pass.
+
+Both kernel binaries and the compiled static policy are unchanged. See [the measured v1.0.2 observations](validation-v1.0.2.json). The public feature default and boot persistence were changed without making backups, cloning instances or adding root grants.

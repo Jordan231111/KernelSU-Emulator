@@ -23,18 +23,18 @@ Exact app/kernel/configuration/driver fingerprints and sources are pinned. Other
 
 Requirements: Python **3.11.8+**, Android Platform Tools (`adb`), MuMuPlayer Pro, `qemu-img` and `e2fsprogs` (`brew install qemu e2fsprogs`). Keep the MuMu launcher open. Docker is needed to build; prebuilt installation can use native filesystem tools.
 
-Use the repository tag matching your [release bundle](https://github.com/Jordan231111/KernelSU-Emulator/releases). Extract its `core/` and `susfs/` directories into `out/releases/v1.0.1/`, or build them:
+Use the repository tag matching your [release bundle](https://github.com/Jordan231111/KernelSU-Emulator/releases). Extract its `core/` and `susfs/` directories into `out/releases/v1.0.2/`, or build them:
 
 ```sh
-python3 ksu.py build --output out/releases/v1.0.1/core
-python3 ksu.py build-susfs --output out/releases/v1.0.1/susfs
+python3 ksu.py build --output out/releases/v1.0.2/core
+python3 ksu.py build-susfs --output out/releases/v1.0.2/susfs
 python3 ksu.py list
 ```
 
 Select the exact instance by index and name. **2 below is an example; substitute your index.** Remove an existing Magisk installation through its own Complete Uninstall first, then confirm its modules and startup services are gone. Do not layer this over another root framework. If you want a fresh development instance, `create-lab --name 'KernelSU Lab'` creates an empty instance; it copies no existing instance.
 
 ```sh
-python3 ksu.py install --instance 2 --bundle out/releases/v1.0.1/core
+python3 ksu.py install --instance 2 --bundle out/releases/v1.0.2/core
 ```
 
 Open **KernelSU Next → Superuser → Shell** and enable root for Shell. Then apply enforcement and SUSFS to the **same instance**:
@@ -42,8 +42,8 @@ Open **KernelSU Next → Superuser → Shell** and enable root for Shell. Then a
 ```sh
 python3 ksu.py verify --instance 2 --root
 python3 ksu.py harden-existing --instance 2 \
-  --bundle out/releases/v1.0.1/core \
-  --susfs-bundle out/releases/v1.0.1/susfs
+  --bundle out/releases/v1.0.2/core \
+  --susfs-bundle out/releases/v1.0.2/susfs
 python3 ksu.py clean-vendor-root --instance 2
 python3 ksu.py verify --instance 2 --root
 python3 ksu.py verify-hardening --instance 2
@@ -56,6 +56,14 @@ The cleanup removes fingerprinted vendor su/console helpers and their startup co
 Manager should show **Working**, Next v3.4.2 and **SuSFS Supported | v2.3.0 (NON-GKI)**. `LKM (GKI1)`, `Custom`, `Manual` and `Jailbreak mode` describe the integration. Grant root to each other app individually.
 
 Core-only `install` preserves MuMu's original SELinux mode. `harden-existing` adds enforcement; omit `--susfs-bundle` to omit SUSFS. A matching SUSFS update uses `install-susfs --instance INDEX --bundle PATH`.
+
+## SELinux hiding is your choice
+
+**Hide SELinux modification defaults to On** when no preference is saved. Change it in KernelSU Next's Settings; both On and Off persist through cold boots. The boot scripts no longer override that switch. Existing saved preferences are preserved during upgrades.
+
+SELinux itself remains genuinely enforcing with either choice. Verification reads the real kernel flag as root and tests actual access denials; an app-facing status display is not used as proof. AVC spoofing remains disabled because its audit hook is not connected in this port.
+
+For an existing v1.0.1 installation, use the v1.0.2 repository and its new core bundle with `upgrade --from-bundle out/releases/v1.0.1/core --bundle out/releases/v1.0.2/core --instance INDEX`. The updater verifies and migrates the exact previous hardening boot script while preserving the SELinux policy and your saved preference. No SUSFS reinstall is needed.
 
 ## MuMu Writable versus Android read-only
 
@@ -73,7 +81,7 @@ python3 ksu.py upgrade --instance 2 \
   --bundle out/releases/NEW/core
 ```
 
-This updates the selected instance directly. It verifies the installed files and Manager against the old bundle, checks the new bundle, and tests two cold boots. The existing SELinux recipe must remain compatible. A changed policy recipe requires a reviewed migration; it is not applied blindly over an older repair.
+This updates the selected instance directly. It verifies the installed files and Manager against the old bundle, checks the new bundle, and tests two cold boots. The existing SELinux recipe must remain compatible. The reviewed v1.0.1 startup-only migration is supported; a changed policy recipe requires its own reviewed migration; it is not applied blindly over an older repair.
 
 **No backup disks, recovery copies, saved original system files or automatic instance clones are created.** The former `restore`, `clone-lab`, `upgrade-clone` and `enhance-clone` workflows are removed. Disk rewrites use temporary working files and atomic replacement; normal completion and handled failures remove those files. Small JSON reports contain checksums/results, not recoverable disk contents. Power loss or unreachable Android can leave temporary staging files; inspect and remove those only while the instance is stopped.
 

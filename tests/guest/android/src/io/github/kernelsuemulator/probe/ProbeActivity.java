@@ -17,6 +17,8 @@ import java.net.URL;
 import javax.net.ssl.HttpsURLConnection;
 import java.io.*;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import org.json.JSONObject;
 public class ProbeActivity extends Activity implements SensorEventListener {
  private volatile String rootResult="not requested"; private TextView text; private Handler handler=new Handler(); private SensorManager sensors;
@@ -29,6 +31,7 @@ public class ProbeActivity extends Activity implements SensorEventListener {
  new Thread(new Runnable(){public void run(){try{int size=Math.max(4096,AudioTrack.getMinBufferSize(8000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT));audio=new AudioTrack(AudioManager.STREAM_MUSIC,8000,AudioFormat.CHANNEL_OUT_MONO,AudioFormat.ENCODING_PCM_16BIT,size,AudioTrack.MODE_STREAM);audio.setVolume(0);audio.play();audioState="muted playback";short[] silent=new short[1024];while(running)audio.write(silent,0,silent.length);}catch(Exception e){audioState=e.toString();}}}).start();}
  private Runnable tick=new Runnable(){public void run(){frames++;JSONObject result=new JSONObject();try{result.put("root",rootResult);result.put("uid",android.os.Process.myUid());result.put("elapsedMs",SystemClock.elapsedRealtime());result.put("uiTicks",frames);result.put("sensorRegistered",registered);result.put("sensorEvents",events);result.put("sensorTimestampNs",sensorTime);result.put("dns",dns);result.put("https",http);result.put("touches",touches);result.put("audio",audioState);result.put("audioFrames",audio==null?0:audio.getPlaybackHeadPosition());
  try(FileInputStream in=new FileInputStream("/data/local/tmp/ksu-selinux-canary")){result.put("protectedRead","allowed");result.put("byte",in.read());}catch(Exception e){result.put("protectedRead",e.toString());}
+ try(FileInputStream in=new FileInputStream("/sys/fs/selinux/status")){byte[] status=new byte[20];if(in.read(status)!=20)throw new IOException("short SELinux status");ByteBuffer b=ByteBuffer.wrap(status).order(ByteOrder.LITTLE_ENDIAN);JSONObject observed=new JSONObject();observed.put("version",b.getInt());observed.put("sequence",b.getInt());observed.put("enforcing",b.getInt());observed.put("policyload",b.getInt());observed.put("deny_unknown",b.getInt());result.put("selinuxStatus",observed);}catch(Exception e){result.put("selinuxStatusError",e.toString());}
  try(FileOutputStream out=new FileOutputStream(new File(getFilesDir(),"report.json"))){out.write(result.toString(2).getBytes("UTF-8"));}
  text.setText("MuMu SELinux runtime probe\n\n"+result.toString(2));}catch(Exception e){text.setText(e.toString());}handler.postDelayed(this,500);}};
  public void onSensorChanged(SensorEvent e){events++;sensorTime=e.timestamp;}

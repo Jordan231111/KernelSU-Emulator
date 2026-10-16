@@ -69,8 +69,18 @@ The enforcing watchdog records the boot ID before enabling enforcement. Success 
 
 The earlier recipe allowed initial startup but omitted execution labels needed when MuMu's core helpers restarted under enforcement. A real guest log showed repeated nemuinit restart denials and a subsequent `vold-failed` reboot. v1.0.1 adds the dedicated core executable type, narrow socket/property/configuration rules and replacement platform startup. App, driver and cold-boot checks passed after the repair.
 
-If startup takes too long, the watchdog restores the prior mode; an unfinished prior boot causes a flagged fallback. `verify-hardening` checks the actual kernel flag, current boot marker, fallback property, installed hashes, labels, init domain and essential services. Next's SELinux-status and AVC masking are disabled. A fallback is a failed verification, never claimed as successful enforcement.
+If startup takes too long, the watchdog restores the prior mode; an unfinished prior boot causes a flagged fallback. `verify-hardening` checks the actual kernel flag, current boot marker, fallback property, installed hashes, labels, init domain and essential services. SELinux hiding is user-controlled; root verification reads the real enforce flag rather than an app-facing status page. AVC masking remains disabled because this build has no connected audit hook. A fallback is a failed verification, never claimed as successful enforcement.
 
 SUSFS has a separate pending-boot guard with synchronized marker writes. Disable **MuMu SUSFS** in Next's Modules screen and cold-boot to remove the running engine. Safe hot-unload is not supported.
 
 These guards create no backup. Maintenance keeps small diagnostic records and removes temporary working files; there is no restore command or retained disk/instance copy. Investigate the failed check before retrying instead of repeatedly clearing markers to force the same failing boot.
+
+## v1.0.2 — persistent SELinux-hiding preference
+
+The two hard-coded `feature set 4 0` startup resets are removed. The official v3.4.2 Manager already saves this switch through `ksud feature save`; the official daemon reloads it during post-fs-data. The pinned legacy kernel defaults hiding to On when no preference exists. An explicit saved Off remains Off, and an explicit saved On remains On. Existing preferences are not overwritten by the updater.
+
+Hiding changes selected app-visible SELinux context/access queries and status counters. It does not turn the kernel permissive or remove the repaired policy. In the measured app_zygote-domain probe, a known root context was accepted with hiding Off and returned EINVAL with hiding On; a stock context remained valid and a nonexistent context remained invalid. The root-related access query was masked, and app-visible status counters were sanitized. Root's view retained the actual context, access response and policy counters.
+
+The native probe uses UID 19999, zero effective capabilities and the app_zygote SELinux domain. It is a controlled process, not a complete Android app-zygote lifecycle test. The separate real APK checks ordinary app functionality and an actual SELinux denial. No additional policy grants are added for these diagnostics.
+
+`upgrade` can migrate the exact v1.0.1 hardening startup recipe: it verifies all unchanged policy/text files, labels and services against the approved previous recipe, replaces the reviewed boot file, and updates the recipe identity. Unknown recipes or altered system inputs are refused. The kernel binaries and static policy are unchanged.
