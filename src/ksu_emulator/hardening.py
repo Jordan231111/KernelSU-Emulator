@@ -20,6 +20,7 @@ from .install import verify
 from .mumu import MuMu
 from .profiles import HEX256, matches, repository_file
 from .susfs import install_susfs, validate_susfs
+from .service_repair import repair_binary
 
 
 def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
@@ -31,6 +32,9 @@ def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
         raise Error("Hardening must pin the vendor policy input")
     if not matches(HEX256, spec.get("compiled_policy_sha256")):
         raise Error("Hardening must pin the independently inspected compiled policy")
+    equivalent = spec.get("equivalent_policy_sha256", [])
+    if not isinstance(equivalent, list) or any(not matches(HEX256, value) for value in equivalent):
+        raise Error("Equivalent policy serializations require reviewed hashes")
     if not isinstance(spec.get("files"), list) or not spec["files"]:
         raise Error("Hardening file fingerprints are missing")
     seen = set()
@@ -45,11 +49,29 @@ def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
             if not matches(HEX256, item.get(key)):
                 raise Error("System patches require exact before/after fingerprints")
         repository_file(item.get("patch"))
+    if not isinstance(spec.get("binary_repairs", []), list):
+        raise Error("Vendor helper repairs must be a list")
+    for item in spec.get("binary_repairs", []):
+        if not isinstance(item, dict):
+            raise Error("Invalid vendor helper repair entry")
+        path = item.get("path")
+        if not matches(r"/system/bin/[A-Za-z0-9_.-]+", path) or ".." in Path(path).parts or path in seen:
+            raise Error("Invalid or duplicate vendor helper path")
+        seen.add(path)
+        if any(not matches(HEX256, item.get(key)) for key in ("before_sha256", "after_sha256")):
+            raise Error("Vendor helper repairs require exact before/after hashes")
+        if not matches(r"[A-Za-z0-9_.-]+", item.get("service")):
+            raise Error("Vendor helper repair requires its exact init service")
+        repository_file(item.get("patch"))
     repository_file(spec.get("policy_rules"))
     if set(spec.get("boot_files", {})) != {"labels.sh", "guard.sh", "mark-boot.sh", "ksu-mumu-policy.rc"}:
         raise Error("Unexpected hardening boot file set")
     for path in spec["boot_files"].values():
         repository_file(path)
+    services = spec.get("required_services")
+    if not isinstance(services, list) or not services or len(set(services)) != len(services) or any(
+            not matches(r"[A-Za-z0-9_.-]+", name) for name in services):
+        raise Error("Hardening requires an explicit list of persistent core services")
     trees = spec.get("offline_label_trees")
     if not isinstance(trees, list) or not trees or any(not matches(r"/etc/mumu-configs/[A-Za-z0-9_-]+", path) for path in trees):
         raise Error("Invalid offline label tree list")
@@ -72,6 +94,9 @@ def recipe_hash(spec: dict) -> str:
     functional["policy_rules"] = sha256(repository_file(spec["policy_rules"]))
     functional["boot_files"] = {name: sha256(repository_file(path)) for name, path in spec["boot_files"].items()}
     functional["files"] = [{**item, "patch": sha256(repository_file(item["patch"]))} for item in spec["files"]]
+    if "binary_repairs" in spec:
+        functional["binary_repairs"] = [{**item, "patch": sha256(repository_file(item["patch"]))}
+                                        for item in spec["binary_repairs"]]
     return hashlib.sha256(json.dumps(functional, sort_keys=True).encode()).hexdigest()
 
 
@@ -88,7 +113,8 @@ def apply_text_patch(before: bytes, item: dict, work: Path) -> bytes:
 
 
 def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
-                     _expected_recipe: str | None = None, _boot_hashes: dict | None = None) -> dict:
+                     _expected_recipe: str | None = None, _boot_hashes: dict | None = None,
+                     _policy_hash: str | None = None, _binary_hashes: dict | None = None) -> dict:
     profile, spec = specification(profile_id)
     mumu.validate_app(profile)
     adb = mumu.connect(index)
@@ -112,19 +138,25 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
     # during migration; the CLI always checks the current recipe.
     result["recipe_matches"] = state.get("recipe_sha256") == (_expected_recipe or recipe_hash(spec))
     expected = {item["path"]: item["after_sha256"] for item in spec["files"]}
-    expected[spec["policy_path"]] = spec["compiled_policy_sha256"]
+    expected.update({item["path"]: (_binary_hashes or {}).get(item["path"], item["after_sha256"])
+                     for item in spec.get("binary_repairs", [])})
+    expected[spec["policy_path"]] = _policy_hash or spec["compiled_policy_sha256"]
     for name, source in spec["boot_files"].items():
         remote = "/system/etc/init/" + name if name.endswith(".rc") else "/system/etc/ksu-mumu-policy/" + name
         expected[remote] = (_boot_hashes or {}).get(name, sha256(repository_file(source)))
     sums = adb.su("sha256sum " + " ".join(shlex.quote(path) for path in expected), check=False)
     actual = {parts[1]: parts[0] for line in sums.splitlines() if len(parts := line.split()) == 2}
-    result["installed_files_match"] = all(actual.get(path) == digest for path, digest in expected.items())
+    accepted_policy = {_policy_hash} if _policy_hash else {
+        spec["compiled_policy_sha256"], *spec.get("equivalent_policy_sha256", [])}
+    result["installed_files_match"] = all(
+        actual.get(path) in accepted_policy if path == spec["policy_path"] else actual.get(path) == digest
+        for path, digest in expected.items())
     labels = {**spec["explicit_system_labels"], "/dev/vaddress": "u:object_r:mumu_vaddress_device:s0"}
     observed = adb.su("ls -Zd " + " ".join(shlex.quote(path) for path in labels), check=False)
     actual_labels = {parts[-1]: parts[0] for line in observed.splitlines() if len(parts := line.split()) >= 2}
     result["critical_labels_match"] = all(actual_labels.get(path) == context for path, context in labels.items())
     result["init_domain_correct"] = adb.su("cat /proc/1/attr/current").rstrip("\x00") == "u:r:init:s0"
-    services = ("zygote", "surfaceflinger", "vold", "netd", "nemuinit", "nemuinput", "nemu_sys_opt", "opengl-gc", "powerbtnd")
+    services = spec["required_services"]
     states = adb.su("; ".join("getprop init.svc." + name for name in services)).splitlines()
     result["service_states"] = dict(zip(services, states))
     result["core_services_running"] = len(states) == len(services) and all(value == "running" for value in states)
@@ -197,6 +229,10 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
                 path = item["path"]
                 before = adb.bytes("su -c " + shlex.quote("cat " + shlex.quote(path)))
                 replacements[path] = apply_text_patch(before, item, work)
+            binaries = {item["path"] for item in spec.get("binary_repairs", [])}
+            for item in spec.get("binary_repairs", []):
+                before = adb.bytes("su -c " + shlex.quote("cat " + item["path"]))
+                replacements[item["path"]] = repair_binary(before, item)
             policy = adb.bytes("su -c " + shlex.quote("cat " + spec["policy_path"]))
             if hashlib.sha256(policy).hexdigest() != spec["policy_before_sha256"]:
                 raise Error("Vendor policy differs from the reviewed MuMu image")
@@ -249,7 +285,7 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
                     raise Error(f"Installed file failed readback: {path}")
 
             for path, data in replacements.items():
-                install_file(path, data)
+                install_file(path, data, "0755" if path in binaries else "0644")
             # Restore ordinary vendor labels. MuMu's protected library trees are
             # verified and repaired separately on the stopped disk below.
             adb.su("restorecon -RF /system", check=False)

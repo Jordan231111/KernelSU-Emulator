@@ -1,86 +1,56 @@
-# SELinux enforcement and SUSFS on MuMu
+# SELinux and SUSFS
 
-The complete configuration combines the working Next root port, a separate MuMu-specific SUSFS LKM, and persistent SELinux repairs. These are independently fingerprinted components. The supported target is the exact MuMu Pro 1.9.2 ARM64 build in the profile.
+## Recommended configuration
 
-## Why the initial enforcing trial failed
+- Keep **real SELinux enforcing** after installing the compatibility policy.
+- Keep MuMu's disk setting **Writable** and vendor root **Off**.
+- Choose **Hide SELinux modification** On or Off in KernelSU Next. Both choices persist through reboot. With no saved preference, this port defaults to On.
+- Leave Next's **AVC spoofing** Off. Its audit hook is not connected in this integration.
 
-The first timed test correctly demonstrated that MuMu's policy was not ready for enforcement: the shell could not launch, graphics/sensor services lost driver access, and the watchdog restored permissive mode. These were repairable integration faults.
+The hiding switch sanitizes selected SELinux context/access queries and status counters. It does not change the real enforce flag or disable access checks. A root-side read of `/sys/fs/selinux/enforce` is used for maintenance verification.
 
-The repair addresses their causes:
+## What enforcing protects
 
-- System files receive their intended SELinux labels. PID 1 runs in the `init` domain, and standard Android services receive explicit service identities.
-- MuMu's virtual driver gets a dedicated `mumu_vaddress_device` type, including the MLS attribute needed by apps with distinct category labels. Its actual clients receive the necessary file operations and **only driver ioctl commands `0x4c15`–`0x4c1a`**, derived from the vendor driver's dispatch code.
-- MuMu's per-app configuration, shared libraries, app logs, properties and private Binder services receive specific types and permissions. The graphics cleanup executable gets its own execution label so it can restart after enforcement begins.
-- Protected vendor library trees are labeled on the stopped instance's ext4 filesystem. The tool verifies every modified extended attribute, runs filesystem checks, checks the rebuilt QCOW2, and swaps it only while that instance remains stopped.
-- KernelSU's early daemon runs through its absolute installed path, which triggers the intended transition into the privileged KernelSU domain. The original relative invocation left helper processes in an unsuitable domain.
+Android's user IDs separate apps; SELinux adds restrictions based on process and resource labels. Enforcing applies those restrictions. It remains useful with root installed because ordinary app processes do not automatically become privileged.
 
-There is no blanket `allow appdomain * * *`, and no change making all app domains permissive. The root domain is privileged by design. An ordinary app was tested accessing a world-readable file labeled `system_data_file`: it receives `EACCES` while its UI, touch input, sensors, HTTPS and muted audio playback continue to work. The same app can launch an authorized root child without turning its ordinary process into a globally privileged app.
+The MuMu repair grants trusted services the virtual-hardware operations they require. Those services have more access than under the incomplete vendor policy. Ordinary app restrictions remain in place. This is not equivalent to a vendor-certified phone policy or a guarantee that every root extension is confined. KernelSU's own root domain is privileged by design.
 
-## Policy compiler pin
+See [service policy](SERVICE-POLICY.md) for which permissions change. Do not turn all SELinux denials into allow rules: denied app access to private resources is expected.
 
-The installer downloads the official **Magisk v27.0 APK solely to extract `magiskpolicy`**, checks both hashes, and uses that standalone policy utility. It installs neither Magisk root nor Magisk Manager.
+## What the SUSFS package does automatically
 
-This older utility is an intentional toolchain pin. The inspected [v30.7 parser](https://github.com/topjohnwu/Magisk/blob/e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac/native/src/sepolicy/statement.rs) strips `0x` and then uses decimal parsing. We reproduced an intended `0x4c15`–`0x4c1a` rule becoming ioctl `0` in the resulting policy. The [v27.0 utility](https://github.com/topjohnwu/Magisk/tree/2c6adbc69ba0e5dce09cd13c6d9aca5de30efe76) compiled the intended values, independently inspected with SETools `sesearch`, and passed real enforcing boots.
+The `mumu_susfs` KernelSU package contains:
 
-The specification pins **both the original vendor policy and the resulting compiled policy hashes**. A compiler exiting successfully is insufficient. Updating this tool requires semantic inspection and runtime qualification, not changing an APK version string.
+- The MuMu-compatible SUSFS kernel module.
+- `susfs-sc`, its control utility.
+- Boot scripts, target checks and payload checksums.
 
-## Which SUSFS implementation is installed?
+At boot it hides the engine/KernelSU module names, registers the known root and policy paths, and enables mount filtering. Ordinary app processes receive the applicable filtered view; privileged access follows the engine's rule-specific exemptions.
 
-This uses [inforcqb/susfs4ksu-lkm](https://github.com/inforcqb/susfs4ksu-lkm) at pinned legacy commit `0b197bfd3d3402ee108e19c66ed3293d9d14481a`, plus this repository's 4.19 port. It implements the SUSFS control protocol as an independent loadable engine. It is **not the canonical SUSFS patches compiled into a replacement MuMu kernel**, and is not claimed to have identical internals or universal feature parity.
+The defaults cover `/data/adb` and this installer's system-side root/policy paths. They do not automatically discover and conceal every trace left by additional Zygisk, Xposed or other modules. Granting an app root does not universally exempt its ordinary process from every filter.
 
-The standard `mumu_susfs` KernelSU module ZIP contains the engine, a small control client, and startup and failure-detection scripts. It uses the official Next daemon's loader and SUSFS queries. Next's embedded GKI SUSFS autoload is disabled because those binaries do not match MuMu's kernel.
+## What it does not provide
 
-The port adapts old procfs, syscall, page-walk and memory-access APIs; uses the actual 4.19 namespace lock; and defers namespace work out of probe context. A real optional mapped-file test found a wrong `get_user_pages_remote` argument assumption. That was fixed for the old task/mm/start signature and retested, including maps, smaps, pagemap and `/proc/self/mem` observations. Compile-time prototype checks preserve that assumption visibly.
+This is a port of an independent SUSFS-compatible LKM, protocol v2.3.0. It is not canonical in-tree SUSFS and has no claim of full feature parity.
 
-The path filters additionally run before directory entries are copied to userspace, handle `O_PATH`, and reject protected inodes before Unix permission checks. They preserve the original file modes, including `0600`, instead of making protected files more permissive.
+- No general SUSFS WebUI/controller is included.
+- Metadata, mapping and redirect support does not mean rules for every app are configured.
+- App/package lists, emulator identity, injection traces and hardware attestation are separate issues.
+- Hiding rules cannot guarantee that all apps will consider the device unmodified.
 
-## Defaults and tested features
+Install extra controllers only after checking their compatibility with this engine. Installing a generic module cannot supply kernel hooks that this build does not implement.
 
-By default the module hides the KernelSU module listing and registered root/policy paths from applicable unprivileged processes, and enables the engine's mount-hiding support. It does not install Zygisk, a metamodule, an integrity-spoofing module, or an arbitrary collection of extra kernel extensions.
+## Policy tool
 
-| Capability | Observed behavior / boundary |
-| --- | --- |
-| Root authorization | Official Manager grants; unapproved app denied, approved root child succeeds |
-| Path controls | Registered files disappear from stat, ordinary open, `O_PATH` and directory enumeration for test app identities; root retains access |
-| Unix permissions | Original `0644` and `0600` modes unchanged |
-| Concurrent directory/path checks | 72,000 path operations and 10,000 directory reads with a concurrent userspace buffer observer; no observed registered-name leakage or missed probes |
-| Mount controls | Test bind mount hidden from the app's mount list; fdinfo reports the visible parent mount; root retains the real view; 30 new namespaces exercised |
-| Metadata controls | Selected inode/size values changed for an unprivileged process; root retained actual metadata |
-| Mapped-file controls | Selected maps/smaps entries hidden; pagemap entry zeroed; `/proc/self/mem` read blocked; root retained access |
-| Open redirect | Test app read replacement bytes while root read the original; displayed fd path retained original name |
-| Uname control | Tested changing the reported release while the privileged kernel sysctl retained the real identity; reset afterward |
-| Module lifecycle | Standard Next module installation, boot stages, disable/re-enable and cold-boot verification |
+Installation uses the checksum-pinned standalone `magiskpolicy` utility from Magisk v27.0 to compile policy. It does not install Magisk root or its Manager. The pin is deliberate: different parser versions handle ioctl ranges differently. The compiled output hashes and the actual permissions are checked separately.
 
-See [the validation record](VALIDATION.md) for release evidence. Version/feature-query output alone is not behavioral proof.
+## Diagnostics and removal
 
-## Known boundaries
+```sh
+python3 ksu.py verify-hardening --instance INDEX
+python3 ksu.py verify-susfs --instance INDEX
+```
 
-- An LKM adds observable surfaces and bounded probe capacity. Zero misses in the stated stress test is a measured result, not a mathematical guarantee under unlimited load.
-- A hard-link or symlink alias still has a directory entry unless that alias is registered; access to its protected target is denied. The directory filter uses inode plus registered name because its callback does not expose a filesystem identity. Do not claim arbitrary aliases are all invisible.
-- Open redirect by itself does not make replacement-file inode metadata identical to the original. Metadata controls are separate.
-- The old kernel has no modern `statx` mount-ID field. This port does not invent that interface.
-- Some upstream UID schemes and optional APIs are not equivalent to canonical in-tree SUSFS. Advanced control changes require their own app/namespace tests. Custom command-line spoofing and third-party injection/mount modules are outside this release's behavioral guarantees.
-- MuMu remains an emulator. Root hiding and SELinux enforcing do not create a certified physical device, a locked trusted boot chain or hardware-backed attestation. See [Google's verdict documentation](https://developer.android.com/google/play/integrity/verdicts).
-- The policy repair is an engineering improvement to this vendor environment, not Android CTS certification or an independent security audit of MuMu.
+A ready/version response verifies startup and identity, not every hiding behavior. Behavioral coverage is listed in [validation](VALIDATION.md).
 
-## Boot guards and the v1.0.1 startup repair
-
-The enforcing watchdog records the boot ID before enabling enforcement. Success now requires **ten consecutive seconds with all nine essential services running**: zygote, SurfaceFlinger, vold, netd, nemuinit, nemuinput, nemu_sys_opt, opengl-gc and powerbtnd. The marker runs asynchronously so init can continue starting services. An Android boot-completed property alone is insufficient.
-
-The earlier recipe allowed initial startup but omitted execution labels needed when MuMu's core helpers restarted under enforcement. A real guest log showed repeated nemuinit restart denials and a subsequent `vold-failed` reboot. v1.0.1 adds the dedicated core executable type, narrow socket/property/configuration rules and replacement platform startup. App, driver and cold-boot checks passed after the repair.
-
-If startup takes too long, the watchdog restores the prior mode; an unfinished prior boot causes a flagged fallback. `verify-hardening` checks the actual kernel flag, current boot marker, fallback property, installed hashes, labels, init domain and essential services. SELinux hiding is user-controlled; root verification reads the real enforce flag rather than an app-facing status page. AVC masking remains disabled because this build has no connected audit hook. A fallback is a failed verification, never claimed as successful enforcement.
-
-SUSFS has a separate pending-boot guard with synchronized marker writes. Disable **MuMu SUSFS** in Next's Modules screen and cold-boot to remove the running engine. Safe hot-unload is not supported.
-
-These guards create no backup. Maintenance keeps small diagnostic records and removes temporary working files; there is no restore command or retained disk/instance copy. Investigate the failed check before retrying instead of repeatedly clearing markers to force the same failing boot.
-
-## v1.0.2 — persistent SELinux-hiding preference
-
-The two hard-coded `feature set 4 0` startup resets are removed. The official v3.4.2 Manager already saves this switch through `ksud feature save`; the official daemon reloads it during post-fs-data. The pinned legacy kernel defaults hiding to On when no preference exists. An explicit saved Off remains Off, and an explicit saved On remains On. Existing preferences are not overwritten by the updater.
-
-Hiding changes selected app-visible SELinux context/access queries and status counters. It does not turn the kernel permissive or remove the repaired policy. In the measured app_zygote-domain probe, a known root context was accepted with hiding Off and returned EINVAL with hiding On; a stock context remained valid and a nonexistent context remained invalid. The root-related access query was masked, and app-visible status counters were sanitized. Root's view retained the actual context, access response and policy counters.
-
-The native probe uses UID 19999, zero effective capabilities and the app_zygote SELinux domain. It is a controlled process, not a complete Android app-zygote lifecycle test. The separate real APK checks ordinary app functionality and an actual SELinux denial. No additional policy grants are added for these diagnostics.
-
-`upgrade` can migrate the exact v1.0.1 hardening startup recipe: it verifies all unchanged policy/text files, labels and services against the approved previous recipe, replaces the reviewed boot file, and updates the recipe identity. Unknown recipes or altered system inputs are refused. The kernel binaries and static policy are unchanged.
+To stop loading the SUSFS engine, disable **MuMu SUSFS** in KernelSU Next's Modules screen and cold-boot. Keep SELinux enforcing independently of that choice. Do not hot-unload either kernel module.

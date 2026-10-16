@@ -21,6 +21,7 @@ from .upgrade import upgrade
 from .susfs import build_susfs, validate_susfs, install_susfs, verify_susfs
 from .hardening import harden_existing, verify_hardening
 from .vendor import clean_vendor_root, verify_vendor_cleanup
+from .policy_update import update_policy
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,6 +105,10 @@ def main(argv: list[str] | None = None) -> int:
     hardening_check = commands.add_parser("verify-hardening", help="Check actual kernel enforcement and the installed repair recipe")
     hardening_check.add_argument("--instance", type=int, required=True)
     hardening_check.add_argument("--profile", default=PROFILE_ID)
+    policy_update = commands.add_parser("update-policy", help="Apply fingerprinted SELinux and service compatibility repairs")
+    policy_update.add_argument("--instance", type=int, required=True)
+    policy_update.add_argument("--profile", default=PROFILE_ID)
+    policy_update.add_argument("--experimental", action="store_true", help="Permit an explicitly reviewed candidate policy")
     check = commands.add_parser("verify", help="Verify a persistent installation")
     check.add_argument("--instance", type=int, required=True)
     check.add_argument("--root", action="store_true", help="Also test su; Shell must be authorized in Manager")
@@ -171,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
                 result = upgrade(mumu, args.instance, args.from_bundle, args.bundle, args.experimental)
             elif args.command == "harden-existing":
                 result = harden_existing(mumu, args.instance, args.bundle, args.susfs_bundle, args.experimental)
+            elif args.command == "update-policy":
+                result = update_policy(mumu, args.instance, args.profile, experimental=args.experimental)
             elif args.command == "clean-vendor-root":
                 result = clean_vendor_root(mumu, args.instance, args.profile, args.experimental)
             elif args.command == "verify-vendor-cleanup":

@@ -62,3 +62,30 @@ python3 tests/guest/qualify_selinux_hiding.py --instance 4 --leave-on
 Use the NDK host directory appropriate to your computer and your explicit instance index. The harness tests hiding On, saved Off after cold boot, and saved On after another cold boot. It checks allowed/invalid/root contexts and an access query from a zero-capability UID 19999 process in the app_zygote domain. A pre-existing memory mapping carries results back because that domain cannot write the root shell's PTY; the tested SELinux interfaces are opened after dropping privileges. This does not grant the probe new policy permissions and does not simulate the entire app-zygote lifecycle.
 
 The real APK separately checks UI, touch, sensors, networking, audio, denied root and the enforcement canary. It records SELinux status if accessible; some ordinary app domains are denied access to that interface. Authorized Shell root, SUSFS, vendor cleanup and all core services are checked in each case. Diagnostic files and the APK are removed afterward. `--leave-on` explicitly selects On at the end; without it, the original live value is saved again. No disk backup or clone is made.
+
+## Video decoding and native input (required for policy changes)
+
+The 1.0.2 checks did not cover surface-backed video decoding or MuMu's native input channel. Include these checks in every future policy qualification.
+
+With a JDK, Android SDK and `ffmpeg` installed:
+
+```sh
+python3 tests/guest/qualify_media.py --instance 0 --repeats 3
+python3 tests/guest/qualify_media.py --instance 0 --size 1920x1080 --repeats 2
+python3 tests/guest/qualify_media.py --instance 0 --codec c2.android.hevc.decoder --encoder libx265
+python3 tests/guest/qualify_media.py --instance 0 --codec c2.android.vp9.decoder --encoder libvpx-vp9
+```
+
+Substitute the intended instance index. The harness generates its own two-second clip, uses Android's real codec service, imports graphic buffers, delivers frames to a SurfaceTexture and checks 60 frames plus end-of-stream. The client is UID 2000; the decoding service retains its real `mediaswcodec` identity. This is a media-service regression test, not a replacement for an ordinary-app isolation test. All generated classes, video clips and guest payloads are removed automatically.
+
+Run the real APK probe separately. Click its text field in the **Mac MuMu window**, type `ksutest`, then click the report area. Confirm `nativeKeyboardText` and `touches` in `files/report.json`. Do not use `adb shell input` for this check: that bypasses the native input route that failed. The probe checks forbidden file access once per launch to avoid flooding the audit buffer; relaunch it for a fresh isolation check.
+
+Repeat the media and native-input checks after a cold boot and after restarting MuMu's native input/graphics helpers under enforcement. Check Binder service registration as well as process state. Do not hot-restart `nemuinit` as a normal health test: the vendor framework caches that bridge connection; use a full MuMu cold boot. Watch for a changed boot ID, service restarts and host API timeouts; an initial `running` value is insufficient. Close user apps before lifecycle testing.
+
+For independent compiled-policy inspection on Linux with `python3-setools`:
+
+```sh
+python3 tests/policy_audit.py OLD_POLICY NEW_POLICY
+```
+
+The audit rejects changed permissive domains, type attributes or the covered ordinary-app/isolated-process rules, and prints the service-rule differences. Fresh-install and migration outputs must be compared separately, even when their binary hashes differ. Never publish proprietary MuMu policy binaries with the report.

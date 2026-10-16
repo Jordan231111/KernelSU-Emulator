@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "previous": [
+    {
+      "policy_sha256": "4633c3da7955b071e4d3a212934cdfcc39458b745d93d2cc7cef30296753023a",
+      "rules": "profiles/mumu-pro-1.9.2-arm64/hardening/policy-v1.0.3.rules",
+      "rules_sha256": "d714a65325f5cf848f189cb00687603ab2516ce2823d14337724bd6432c36119",
+      "release": "v1.0.1",
+      "recipe_sha256": "d48bcc1befdc26f48ddd9322e0d7157b205f7706ed039f6ba3d6e6e8f12715aa",
+      "boot_sha256": {
+        "guard.sh": "aa598c89974d658c9da83cbef6f06994313b625bd9ec9f58789f54c5477cc1af",
+        "mark-boot.sh": "a6f73aee7e1eded4c3c019affbc0c2ff6226a2d917763d6b13751174d70555cc"
+      },
+      "binary_sha256": {
+        "/system/bin/nemu_sys_opt": "d88a33f6a60fd32bbbe6c2a0a745871ec3b832b4f2b7331c915de825a2f274e6"
+      }
+    },
+    {
+      "policy_sha256": "4633c3da7955b071e4d3a212934cdfcc39458b745d93d2cc7cef30296753023a",
+      "rules": "profiles/mumu-pro-1.9.2-arm64/hardening/policy-v1.0.3.rules",
+      "rules_sha256": "d714a65325f5cf848f189cb00687603ab2516ce2823d14337724bd6432c36119",
+      "release": "v1.0.2",
+      "recipe_sha256": "9fee9b8d1f0a4fa41cb4a16fa8865b58acef054aafc3ef8d6e315750bf533136",
+      "boot_sha256": {
+        "mark-boot.sh": "a6f73aee7e1eded4c3c019affbc0c2ff6226a2d917763d6b13751174d70555cc"
+      },
+      "binary_sha256": {
+        "/system/bin/nemu_sys_opt": "d88a33f6a60fd32bbbe6c2a0a745871ec3b832b4f2b7331c915de825a2f274e6"
+      }
+    }
+  ]
+}

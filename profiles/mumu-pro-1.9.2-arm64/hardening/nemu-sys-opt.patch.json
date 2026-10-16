@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "path": "/system/bin/nemu_sys_opt",
+  "before_sha256": "d88a33f6a60fd32bbbe6c2a0a745871ec3b832b4f2b7331c915de825a2f274e6",
+  "after_sha256": "f9dca50a3bd2c234d30ae2927972789f35772ebfba2fdcf58576e014e120b137",
+  "edits": [
+    {
+      "offset": 264,
+      "before": "809d010000000000",
+      "after": "949d010000000000"
+    },
+    {
+      "offset": 272,
+      "before": "809d010000000000",
+      "after": "949d010000000000"
+    },
+    {
+      "offset": 33668,
+      "before": "40020054",
+      "after": "e0cf0c54"
+    },
+    {
+      "offset": 138624,
+      "before": "0000000000000000000000000000000000000000",
+      "after": "90feff97000040b91f440071e02ff3549199ff17"
+    }
+  ],
+  "purpose": "Treat EEXIST from mkdir of /sys/fs/cgroup/nemu_sys_opt as success. Preserve the original error path for every other errno.",
+  "review": {
+    "original_conditional_address": "0x8384",
+    "mkdir_plt": "0x217e0",
+    "errno_plt": "0x217c0",
+    "success_address": "0x8388",
+    "error_continuation": "0x83d4",
+    "trampoline_address": "0x21d80",
+    "rx_segment_end_before": "0x21d80",
+    "rx_segment_end_after": "0x21d94",
+    "next_segment_start": "0x22000"
+  }
+}

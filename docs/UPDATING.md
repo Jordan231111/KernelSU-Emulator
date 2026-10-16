@@ -4,7 +4,23 @@ The update unit is a **compatibility profile plus its complete bundle**: kernel 
 
 The tools distinguish `verified` profiles from `candidate` profiles. A candidate can be built and inspected normally, but installation requires `--experimental` and an instance registered by `create-lab`. This flag permits testing; it does not certify the result. No command automatically installs the latest GitHub commit or promotes a profile.
 
-## Before an update
+## Routine policy repair
+
+For an existing v1.0.1 or v1.0.2 installation, extract the v1.0.3 release ZIP and run its script from that folder:
+
+```sh
+python3 ksu.py list
+python3 ksu.py update-policy --instance 0
+python3 ksu.py stop --instance 0
+python3 ksu.py start --instance 0
+python3 ksu.py verify-hardening --instance 0
+```
+
+Use the intended instance index and close apps before stopping it. This changes the policy, reviewed boot checks and the fingerprinted MuMu optimizer restart fix; KernelSU/SUSFS binaries, app data and saved hiding preferences remain intact. No old/new root bundle is needed for this compatibility repair. The full `upgrade` command also applies supported policy migrations automatically.
+
+The sections below are for framework or MuMu-version updates. A new upstream release is a compatibility-review task until a matching profile and bundle are qualified.
+
+## Before a framework or MuMu update
 
 Updates act on the explicitly selected instance and create no backup, original-file archive or clone. A failed update is reported and the instance is stopped; old contents are not restored. Temporary disk conversion/staging files are removed on completion or a handled failure. The boot guards store only small status markers.
 
@@ -66,7 +82,7 @@ python3 ksu.py upgrade --instance 4 \
   --bundle out/mumu-new-arm64 --experimental
 ```
 
-Authorize Shell in Manager first. The command checks every installed payload file and Manager APK against `--from-bundle`, stages and validates the new files, updates the same-package Manager, publishes the startup entry and tests two cold boots with vendor root off. Android rejects a different signing identity. Existing enforcing installations must pass the core-service health checks after each boot; a changed hardening recipe needs a separate reviewed migration.
+Authorize Shell in Manager first. The command checks every installed payload file and Manager APK against `--from-bundle`, stages and validates the new files, updates the same-package Manager, publishes the startup entry and tests two cold boots with vendor root off. Android rejects a different signing identity. Existing enforcing installations must pass the core-service health checks after each boot. Known policy migrations run automatically; unknown recipes are rejected.
 
 A failure stops that instance and records the failed check. There is no rollback or retained original instance. Inspect the record and correct the measured cause before booting the same changed configuration again.
 
@@ -232,3 +248,14 @@ Substitute your actual instance index. This is an in-place update; no instance o
 Then choose **Hide SELinux modification** in Next's Settings. Its saved value survives cold boot; unset preferences use the legacy kernel's On default. For scripted maintenance, `ksud feature set 4 1` changes the live setting and `ksud feature save` persists current feature settings. Use value `0` to turn it off. These commands require your existing authorized root shell. Neither value changes real SELinux enforcement.
 
 `verify-hardening` reports both the live and saved hiding values for inspection. Neither is a pass/fail requirement: both are valid user preferences. Enforcement, critical labels, installed hashes and core service health remain mandatory.
+
+
+## Reviewing a future service-policy change
+
+1. Inventory the vendor services, identities and device/configuration dependencies. Include operations performed after startup and when input/media sessions are recreated.
+2. Update the complete functional permission set for the responsible services. Keep ordinary-app restrictions and verify them with the APK canary test.
+3. Compile from the new MuMu image's exact original policy. Compare semantics with SETools; pin every accepted serialization. Do not replace an expected hash merely because the compiler produced a different file.
+4. Recheck `binary_repairs`. The optimizer edit applies only to the exact helper hash in the profile. If MuMu fixes or changes that helper, review its behavior and remove or rederive the edit; never reuse offsets on an unknown binary.
+5. Add explicit previous-recipe, policy, helper and boot-file fingerprints to `policy-migrations.json`. Test rejection of altered input and a real migration, including the read-only remount after replacing a running helper.
+6. Run the video/native-input tests, appropriate service lifecycle checks and cold boots. Do not hot-kill the central bridge as a routine health check; its supported lifecycle is the full emulator lifecycle.
+7. Publish the installer and payload together, with concise installation instructions and a separate validation record. Remove local builds, installed probes and staging files after publishing.

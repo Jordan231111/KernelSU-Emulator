@@ -60,7 +60,10 @@ def verify_vendor_cleanup(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) 
     raw = adb.su("sha256sum " + " ".join(shlex.quote(path) for path in expected), check=False)
     actual = {parts[1]: parts[0] for line in raw.splitlines() if len(parts := line.split()) == 2}
     process_names = {line.split()[-1] for line in adb.su("ps -A").splitlines() if line.split()}
-    forbidden = {"mu_bak", "serial_console", "VBoxShell", "magiskd", "zygisk-ptrace64", "zygiskd64", "vectord"}
+    forbidden = {"mu_bak", "serial_console", "VBoxShell", "su_daemon", "daemonsu", "magiskd", "apd"}
+    # Zygisk/Vector can be ordinary KernelSU add-ons. Their process names do
+    # not establish that Magisk or a vendor root provider is still installed.
+    injection = {"zygisk-ptrace64", "zygisk-ptrace32", "zygiskd64", "zygiskd32", "vectord", "lspd"}
     helpers = ["/system" + item["path"] for item in spec["remove_files"]]
     present = adb.su("; ".join(f"if [ -e {path} ]; then echo {path}; fi" for path in helpers), check=False).splitlines()
     package = adb.su("dumpsys package " + spec["companion_package"])
@@ -72,6 +75,7 @@ def verify_vendor_cleanup(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) 
     root_services = {name: adb.shell("getprop init.svc." + name) for name in ("su_daemon", "VBoxShell")}
     result = {"instance": index, "files_match": all(actual.get(path) == digest for path, digest in expected.items()),
               "old_root_processes": sorted(process_names & forbidden), "vendor_helpers_present": present,
+              "injection_module_processes": sorted(process_names & injection),
               "legacy_receiver_disabled": receiver_disabled,
               "platform_api_running": api_running, "vendor_root_services": root_services,
               "platform_api_ready": adb.shell("getprop sys.ksu_mumu.platform_ready") == "1",

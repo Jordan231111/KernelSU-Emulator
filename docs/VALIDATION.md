@@ -1,5 +1,8 @@
 # Validation record — 2026-10-15
 
+Latest results: [v1.0.3 observations](validation-v1.0.3.json). Earlier records describe the workloads actually exercised, not exhaustive compatibility. v1.0.3 adds the scene-decoder, native-input and service-lifecycle checks missing from the earlier qualification.
+
+
 Target: MuMuPlayer Pro 1.9.2, Apple Silicon, Android 12, kernel `4.19.195-android-arm64-gedae1315d023`. See the profile for exact image and configuration hashes.
 
 ## Completed runtime checks
@@ -110,3 +113,24 @@ Runtime qualification exercised On, saved Off after cold boot, and saved On afte
 The separate native app_zygote-domain probe demonstrated a real visibility difference: the KSU context was accepted with hiding Off and rejected with EINVAL with hiding On; a stock context remained valid and an invented context remained invalid. The KSU-related access response and app-visible policy counters were masked only with hiding On. Root retained its real view. The ordinary APK was denied direct access to the SELinux status interface in both modes; no policy exception was added to make that test pass.
 
 Both kernel binaries and the compiled static policy are unchanged. See [the measured v1.0.2 observations](validation-v1.0.2.json). The public feature default and boot persistence were changed without making backups, cloning instances or adding root grants.
+
+
+## v1.0.3 — media, native input and service compatibility
+
+The original Another Eden crash was reproduced independently: H.264 decoding failed before the first frame because `mediaswcodec` could not open MuMu's graphics connection. After the service-policy repair, the generated clip delivered all 60 frames. The user also confirmed that the failing game scene played successfully.
+
+The complete service repair covers trusted graphics/media clients, native input's normal uinput operations, kernel devtmpfs device creation, native Binder service-manager communication, performance counters/VM controls and diagnostic configuration reads. SETools comparison found no new permissive domains, unchanged type attributes and unchanged rules for the covered ordinary-app and isolated-process domains. Fresh-install and upgrade policy serializations were inspected separately and pinned by hash.
+
+A separate vendor helper defect was exposed by lifecycle testing: `nemu_sys_opt` aborted when its existing control group caused `mkdir` to return EEXIST. The reviewed ARM64 edit handles that one errno as success and keeps all other errors on the original path. Its input matches the untouched MuMu application image. The patch extends an existing RX segment into unused padding without changing its permissions, and is gated by complete input/output hashes. The vendor binary is not distributed.
+
+Final checks:
+
+- Two full MuMu stop/start cycles with real enforcing, no fallback, matching installed hashes/labels and all 18 required services running.
+- H.264 after both cold boots; final H.264 1080p, HEVC and VP9 runs each delivered 60 frames and reached end-of-stream.
+- Native Mac keyboard input produced `ksutest`; native mouse input incremented the APK touch counter. The user confirmed both again after the final boot.
+- Muted audio playback advanced, sensor events arrived and HTTPS returned 200. The world-readable SELinux canary remained inaccessible with EACCES. An unapproved app could not launch `su`; approved Shell root continued to work.
+- Input, graphics-cleanup, optimizer and power-button services restarted under enforcement. App launch remained functional, the boot ID stayed unchanged and no relevant new denials were observed.
+- Final root, SUSFS and vendor-cleanup checks passed, `/system` was read-only and the final boot was observed for more than ten minutes. Installed diagnostics and staging files were removed.
+- 45 host tests passed. The vendor-cleanup check now distinguishes KernelSU injection add-ons from competing root-provider daemons.
+
+The central `nemuinit` bridge is not an independently restartable component of this vendor framework: forcibly killing it leaves a cached Binder reference and can restart Android. Core maintenance therefore uses full MuMu cold boots. This limit remains documented rather than hidden by broad permissions. Camera enumeration was checked; physical camera/microphone capture and external Bluetooth hardware were not tested. These results are not CTS certification or a guarantee for arbitrary third-party modules/apps.

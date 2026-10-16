@@ -1,93 +1,65 @@
-# How this installation works
+# How it works
 
-KernelSU Next is running **inside MuMu's Android kernel**. The private system disk supplies the files and the startup instructions; it is not a substitute for the kernel component.
+## Boot sequence
 
-Think of an ordinary Linux driver loaded after boot. The driver file starts on disk, but loading it makes its code run inside the kernel. A compatible KernelSU loadable module works on the same principle. Its job is to give approved Android processes root privileges and enforce KernelSU's authorization decisions.
+1. MuMu boots its original Android kernel and virtual hardware.
+2. The selected instance's private system disk supplies a startup entry, the matching `ksud` daemon and `kernelsu.ko`.
+3. Startup checks the kernel and payload fingerprints, then loads the KernelSU module.
+4. KernelSU Next's Manager controls which apps may obtain root.
+5. The separate MuMu SUSFS package loads its compatible engine and default hiding rules.
+6. The SELinux setup applies the repaired labels and service policy, enables real enforcement and checks startup health.
 
-## The pieces
+Root applies to the Android guest. It does not root macOS.
 
-| Piece | Role in this installation |
+## Components
+
+| Component | Purpose |
 | --- | --- |
-| MuMu application on macOS | Runs the virtual machine and provides its vendor kernel and hardware implementation |
-| MuMu's stock Android kernel | Continues to run Android and MuMu's graphics, input and other drivers |
-| `kernelsu.ko` | The MuMu-specific KernelSU Next kernel component, compiled with the measured vendor compatibility fixes |
-| Official Next Manager APK | The Android app in which you approve root access and manage profiles/modules |
-| Matching `ksud` daemon | Connects userspace management and module stages to the kernel component; its loader resolves the required kernel symbols |
-| Private `system.qcow2` | The selected emulator instance's own virtual Android system disk, containing the module, daemon and startup files |
-| Init configuration and boot script | Verify the target and payload, then load KernelSU automatically at the appropriate boot stage |
-| Host Python CLI | Builds, checks, installs, updates in place and captures compatibility evidence from macOS |
+| MuMu kernel and drivers | Keep the emulator's existing virtual-hardware interfaces |
+| Custom KernelSU Next legacy port | Supply kernel root on MuMu's older 4.19 ARM64 kernel |
+| Official Next v3.4.2 Manager/daemon | Manage root grants, app profiles and module startup |
+| MuMu SUSFS LKM | Filter selected filesystem/module/mount observations |
+| SELinux compatibility policy | Permit required virtual-hardware operations while retaining app restrictions |
+| `ksu.py` | Install, verify and maintain the selected instance |
 
-"Private system disk" means **per-instance storage**, created through MuMu's writable-system support. It does not mean a secret disk format or access to other users' machines. `qcow2` is the virtual disk container; Android sees its normal filesystems inside it.
+“Legacy” refers to the kernel integration branch. The Manager is the pinned official release. This port does not claim every feature of Next's modern GKI kernel branch.
 
-```mermaid
-flowchart TD
-    A[MuMu starts its normal virtual machine] --> B[Stock vendor kernel boots Android]
-    C[Selected instance's private system disk] --> D[Android init reads the startup entry]
-    B --> D
-    D --> E[Verify kernel identity and payload hashes]
-    E --> F[Matching daemon loads the compatible KernelSU module]
-    F --> G[KernelSU runs inside the Android kernel]
-    H[Official KernelSU Next Manager] --> I[Per-app authorization and profiles]
-    I --> G
-    G --> J[Approved app receives root; unapproved app is denied]
-```
+## Why use loadable modules?
 
-## Why this is genuine kernel root
+MuMu's kernel supports Linux loadable modules. Using that interface preserves its working kernel/driver combination. Replacing the whole kernel would also require reproducing MuMu's virtual-hardware interfaces.
 
-The meaningful evidence is the behavior of the running system, not the presence of an APK or a "Working" badge. The kernel answers the native KernelSU control protocol; an authorized process becomes UID 0 in KernelSU's SELinux domain; a fresh unauthorized identity is denied. Those checks continue to work after MuMu's original root option is disabled and the emulator has been fully stopped and restarted.
+The modules are built for the exact kernel and driver fingerprints in the profile. A module with the same filename or nominal kernel version is not interchangeable. Module removal requires a cold boot; safe hot-unload is not supported.
 
-This gives root **in the Android guest**. It does not root macOS or grant a guest application unrestricted access to the host.
+## Disk settings
 
-LKM loading is a legitimate Linux kernel extension mechanism and part of the wider KernelSU ecosystem. This particular port is independently maintained; it is not an official MuMu-supported integration or a claim that an arbitrary official GKI binary works on MuMu.
+MuMu's **Writable** setting selects a private system disk for the instance. The installer places its files there. Changing the MuMu setting to Readonly selects a different system view and bypasses those files.
 
-## Why retain MuMu's kernel?
+Android can still mount `/system` read-only during normal operation. KernelSU does not require continuous filesystem write access. Maintenance temporarily remounts it when installing checked files.
 
-MuMu already has a working kernel and vendor driver combination for its graphics, shared memory, input, sensors and virtual hardware. Replacing the entire kernel would mean reproducing those interfaces as well as adding root. The installed build supports loadable modules, so we can add the root component while retaining the working virtual hardware implementation.
+## Vendor-root removal
 
-This still required real engineering. MuMu's internal task structure differs from the available Android common source. We measured and corrected that layout difference, adapted the syscall and security hooks, and removed a call into kernel initialization code that had already been freed. These are the reasons a generic downloaded module is not interchangeable with the one built here.
+The cleanup command removes recognized MuMu su/console helpers and their startup actions. It replaces the companion app's obsolete su-dependent boot receiver with a startup helper for the normal emulator API service.
 
-The result is a smaller compatibility problem: maintain a measured extension and its startup path instead of replacing the whole virtual-machine kernel. It is the strongest demonstrated route for the tested build. A future MuMu release can change the constraints; the profile checks identify that case before the installer loads an incompatible module.
+MuMu's graphics, input and hardware services remain installed. They are virtual-hardware components, not competing root frameworks.
 
-## Why Next rather than original KernelSU?
+## SELinux
 
-Original KernelSU v0.9.5 provided the initial proof that the mechanism worked on this non-GKI vendor kernel. The completed base port then moved to **KernelSU Next's legacy kernel branch with the official v3.4.2 Manager and daemon**. That combination retained a relevant older-kernel integration path while giving us newer userspace management, and it passed the actual MuMu tests.
+Enforcing means the kernel blocks operations that the loaded policy does not allow. Permissive logs those violations but allows them. Disabled turns that SELinux layer off.
 
-"Legacy" here describes the kernel integration branch. It does not mean we renamed an old Manager APK. It also does not mean every feature of Next's latest modern-GKI branch exists on this older kernel. The profile records the exact source commits, version and control-API contract, and the validation record states what was exercised.
+This MuMu image starts permissive and lacks permissions needed by some of its own services. The compatibility policy repairs service identities, labels and virtual-hardware access. Its grants are broader for the trusted services that need those interfaces; ordinary app permissions are not expanded by the v1.0.3 repair. See [service permissions](SERVICE-POLICY.md) for the exact scope and tradeoffs.
 
-The [fork comparison](../research/ROOT-FRAMEWORKS.md) explains the alternatives. More built-in features are useful only if their kernel hooks, daemon, Manager and optional extensions work together on the target.
+“Hide SELinux modification” changes selected app-visible observations. It does not toggle enforcement, grant a missing service permission or certify the device.
 
-## What changes during installation?
+## SUSFS
 
-The installer selects one instance, enables MuMu's bootstrap root and its private writable system view, copies the checked payload, installs Manager and publishes the startup entry. It verifies a cold boot, switches vendor root off and verifies another boot. Shell access for maintenance then uses a grant in the official Next Manager.
+The engine is an adapted independent LKM from `inforcqb/susfs4ksu-lkm`, not canonical SUSFS compiled into a replacement kernel. The KernelSU package supplies that engine, its control utility and boot scripts.
 
-`harden-existing` applies the measured SELinux repair to that same instance. `clean-vendor-root` removes the fingerprinted vendor su/console helpers and their init actions from its private filesystem. The vendor companion's old boot receiver assumes vendor su exists and crashes under enforcement when it does not. A small KernelSU startup script replaces that receiver's useful function by starting the ordinary emulator API service directly. The vendor graphics/input services remain necessary virtual hardware components, not alternative root providers.
+Default rules hide known root/policy paths and module names and enable mount filtering. Additional features require their own configuration and tests. The general sidex15 SUSFS controller/WebUI is not bundled or qualified with this port. Root hiding does not hide every emulator characteristic or create hardware-backed attestation.
 
-No VM backups, automatic clones or saved original system files are created. `upgrade` changes the selected instance in place after checking both bundles. Offline filesystem edits use short-lived conversion files, filesystem checks and atomic replacement; the old disk is not retained. Failed updates stop and report the affected instance rather than restoring it.
+## Maintenance
 
-The modules are pinned in memory because their hooks cannot safely be removed by a casual unload command. Cold boot discards the running kernel and its extensions. Boot guards can skip a failed optional load or report a permissive fallback without storing an old disk.
+A compatibility profile pins the supported MuMu kernel, driver, source revisions and userspace components. `update-policy` applies known SELinux repairs. `upgrade` updates matched root payloads. Neither silently substitutes the newest upstream release.
 
-Keep MuMu's GUI system setting on **Writable**, which selects the modified private disk. Android's `/system` filesystem is normally **read-only** after vendor cleanup, and root works in that state. These are different controls; changing MuMu's GUI setting to Readonly bypassed the private modifications in a direct marker-file test.
+Updates happen in place. No VM backup, clone or retained original file is created. Temporary working files are removed. Boot guards retain small status markers and report failed startup; a fallback is not reported as a successful enforcing installation.
 
-## Where SUSFS fits
-
-SUSFS adds selected kernel-level controls over what processes can observe. It is a separate capability from obtaining root. The familiar SUSFS module ZIP normally supplies configuration and userspace tools; it needs an actual compatible kernel engine underneath.
-
-The installed complete configuration uses the second of two meaningful engine routes: integrate the canonical patches into a complete compatible MuMu kernel, or port a separate SUSFS LKM to the existing vendor kernel. The latter follows the same general extension strategy as the root component, but touches different filesystem and namespace interfaces and needs independent tests.
-
-A loaded engine, a version response, path hiding, mount hiding and reliable operation under concurrency are separate milestones. The [validation record](VALIDATION.md) records the completed behavior tests, and [SELinux/SUSFS details](SELINUX-SUSFS.md) document the remaining boundaries. Neither a fork name nor a successful status screen proves universal invisibility, and hiding root does not provide hardware-backed device certification.
-
-## Enforcing versus permissive SELinux
-
-Android's regular user IDs separate apps. SELinux adds another access-control layer based on what kind of process is acting and what kind of object it is accessing. Even a root process can be constrained by it.
-
-In **permissive** mode, SELinux records policy violations but allows the operation to proceed. In **enforcing** mode, it denies the operation. Properly integrated root apps can work with enforcement: KernelSU provides the privileged domain and policy mechanisms they need. An app with a genuinely missing permission should receive a narrow, reviewed rule or an app fix instead of requiring the entire emulator to stop enforcing.
-
-The tested MuMu vendor environment started permissive. Its system labels and service identities were not ready for a simple global mode switch. The enhancement therefore repairs those labels and identities, grants the virtual hardware's required permissions, and tests both allowed behavior and an operation that must remain forbidden. Root's own privileged domain is a separate policy decision; global enforcing does not mean every individual domain lacks exceptions.
-
-Displaying "Enforcing" while still allowing forbidden app operations would not be the same repair. The test uses an ordinary app and a world-readable file whose SELinux label should prohibit access, alongside rendering, sensor and normal app-storage checks.
-
-## How updates stay manageable
-
-Each profile is a written compatibility contract. It pins the target kernel, vendor reference module, source revisions, Manager/daemon and patches. The tooling captures a new MuMu installation, compares it with the known target, prepares explicit candidates, checks patch application, and qualifies updates on the selected instance or a fresh lab.
-
-An app update with unchanged kernel fingerprints can reuse the reviewed build recipe as a candidate. A new framework revision needs protocol and patch review. A changed kernel needs new layout and hook measurements. The [step-by-step update guide](UPDATING.md) documents each path and exactly what to test before calling the result verified.
+Use [the update guide](UPDATING.md) for new MuMu, KernelSU Next or SUSFS versions. Test records and historical investigations are kept in [validation](VALIDATION.md) and `research/`.

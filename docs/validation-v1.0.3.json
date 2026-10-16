@@ -1,0 +1,224 @@
+{
+  "release": "v1.0.3",
+  "date": "2026-10-16",
+  "target": "mumu-pro-1.9.2-arm64",
+  "kernel_binaries_changed": false,
+  "policy": {
+    "fresh_sha256": "1b9751b22d47708ce4ee0753169996fa7416b66561b9a8e2716127709e79c1e7",
+    "equivalent_sha256": [
+      "be0cbe355c08e0de3a28104bc0004fe5276cd965ee8810b145a5819b23240115"
+    ],
+    "semantic_audit": {
+      "delta": {
+        "permissive_domains_unchanged": true,
+        "permissive_domains": [],
+        "type_attributes_unchanged": true,
+        "app_domains_unchanged": [
+          "untrusted_app",
+          "untrusted_app_25",
+          "untrusted_app_27",
+          "untrusted_app_29",
+          "app_zygote",
+          "isolated_app"
+        ],
+        "removed_rules": [
+          "allow init proc:file { getattr ioctl lock map open read watch watch_reads };",
+          "allow init sysfs:file { getattr relabelfrom };",
+          "allow init uhid_device:chr_file setattr;",
+          "allow kernel kernel:capability { sys_boot sys_nice sys_resource };"
+        ],
+        "added_rules": [
+          "allow audioserver mumu_runtime_config_file:file { getattr map open read };",
+          "allow audioserver mumu_vaddress_device:chr_file { getattr ioctl map open read write };",
+          "allow cameraserver mumu_runtime_config_file:file { getattr map open read };",
+          "allow cameraserver mumu_vaddress_device:chr_file { getattr ioctl map open read write };",
+          "allow crash_dump mumu_runtime_config_file:file { getattr open read };",
+          "allow hal_audio_default mumu_runtime_config_file:file { getattr map open read };",
+          "allow hal_camera_default mumu_runtime_config_file:file { getattr map open read };",
+          "allow hal_gnss_default mumu_runtime_config_file:file { getattr map open read };",
+          "allow hal_graphics_allocator_default mumu_runtime_config_file:file { getattr map open read };",
+          "allow hal_sensors_default mumu_runtime_config_file:file { getattr map open read };",
+          "allow init init:binder { call transfer };",
+          "allow init mumu_runtime_config_file:file { getattr map open read };",
+          "allow init proc:file { getattr ioctl lock map open read watch watch_reads write };",
+          "allow init proc_pressure_cpu:file { getattr open read };",
+          "allow init proc_pressure_io:file { getattr open read };",
+          "allow init servicemanager:binder { call transfer };",
+          "allow init sysfs:file { getattr open read relabelfrom };",
+          "allow init uhid_device:chr_file { getattr ioctl open read setattr write };",
+          "allow kernel kernel:capability { mknod sys_boot sys_nice sys_resource };",
+          "allow mediacodec mumu_runtime_config_file:file { getattr map open read };",
+          "allow mediacodec mumu_vaddress_device:chr_file { getattr ioctl map open read write };",
+          "allow mediaextractor mumu_runtime_config_file:file { getattr map open read };",
+          "allow mediaextractor mumu_vaddress_device:chr_file { getattr ioctl map open read write };",
+          "allow mediaserver mumu_runtime_config_file:file { getattr map open read };",
+          "allow mediaserver mumu_vaddress_device:chr_file { getattr ioctl map open read write };",
+          "allow mediaswcodec mumu_runtime_config_file:file { getattr map open read };",
+          "allow mediaswcodec mumu_vaddress_device:chr_file { getattr ioctl map open read write };",
+          "allow servicemanager init:binder { call transfer };",
+          "allow servicemanager init:dir search;",
+          "allow servicemanager init:file { open read };",
+          "allow servicemanager init:process getattr;",
+          "allowxperm audioserver mumu_vaddress_device:chr_file ioctl 0x4c15-0x4c1a;",
+          "allowxperm cameraserver mumu_vaddress_device:chr_file ioctl 0x4c15-0x4c1a;",
+          "allowxperm init uhid_device:chr_file ioctl 0x5500-0x55ff;",
+          "allowxperm mediacodec mumu_vaddress_device:chr_file ioctl 0x4c15-0x4c1a;",
+          "allowxperm mediaextractor mumu_vaddress_device:chr_file ioctl 0x4c15-0x4c1a;",
+          "allowxperm mediaserver mumu_vaddress_device:chr_file ioctl 0x4c15-0x4c1a;",
+          "allowxperm mediaswcodec mumu_vaddress_device:chr_file ioctl 0x4c15-0x4c1a;"
+        ]
+      },
+      "fresh_equivalence": {
+        "permissive_domains_unchanged": true,
+        "permissive_domains": [],
+        "type_attributes_unchanged": true,
+        "app_domains_unchanged": [
+          "untrusted_app",
+          "untrusted_app_25",
+          "untrusted_app_27",
+          "untrusted_app_29",
+          "app_zygote",
+          "isolated_app"
+        ],
+        "removed_rules": [],
+        "added_rules": []
+      },
+      "current_equivalence": {
+        "permissive_domains_unchanged": true,
+        "permissive_domains": [],
+        "type_attributes_unchanged": true,
+        "app_domains_unchanged": [
+          "untrusted_app",
+          "untrusted_app_25",
+          "untrusted_app_27",
+          "untrusted_app_29",
+          "app_zygote",
+          "isolated_app"
+        ],
+        "removed_rules": [],
+        "added_rules": []
+      }
+    },
+    "recipe_sha256": "cb720285ae996276fbd3c0d9e14276a541f88f4b0c072bc2eef86702dac8c70e"
+  },
+  "service_repair": {
+    "path": "/system/bin/nemu_sys_opt",
+    "before_sha256": "d88a33f6a60fd32bbbe6c2a0a745871ec3b832b4f2b7331c915de825a2f274e6",
+    "after_sha256": "f9dca50a3bd2c234d30ae2927972789f35772ebfba2fdcf58576e014e120b137",
+    "original_matched_stock_mumu_image": true,
+    "behavior": "Accept EEXIST for the optimizer cgroup mkdir; preserve other error handling",
+    "redistributes_vendor_binary": false
+  },
+  "video": {
+    "before_repair": {
+      "codec": "c2.android.avc.decoder",
+      "decoded_frames": 0,
+      "error": "IllegalStateException after mediaswcodec vaddress access denial"
+    },
+    "user_confirmed_another_eden_scene_after_repair": true,
+    "final_runs": [
+      {
+        "codec": "c2.android.avc.decoder",
+        "frames": 60,
+        "passed": true
+      },
+      {
+        "codec": "c2.android.hevc.decoder",
+        "frames": 60,
+        "passed": true
+      },
+      {
+        "codec": "c2.android.vp9.decoder",
+        "frames": 60,
+        "passed": true
+      }
+    ]
+  },
+  "cold_boots": [
+    {
+      "verified": true,
+      "enforcing": true,
+      "fallback": null,
+      "media_runs": [
+        {
+          "frames": 60,
+          "passed": true
+        },
+        {
+          "frames": 60,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "verified": true,
+      "enforcing": true,
+      "fallback": null,
+      "media_runs": [
+        {
+          "frames": 60,
+          "passed": true
+        },
+        {
+          "frames": 60,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "service_restarts": {
+    "tested": [
+      "nemuinput",
+      "opengl-gc",
+      "nemu_sys_opt",
+      "powerbtnd"
+    ],
+    "same_boot": true,
+    "relevant_denials": []
+  },
+  "ordinary_app": {
+    "native_keyboard_text": "ksutest",
+    "native_mouse_touches": 2,
+    "user_confirmed_native_input_after_final_boot": true,
+    "sensor_events": 2424,
+    "muted_audio_frames": 3877376,
+    "https": "HTTP 200",
+    "selinux_canary": "EACCES",
+    "unapproved_su_result": "java.io.IOException: Cannot run program \"su\": error=2, No such file or directory"
+  },
+  "final": {
+    "enforcing": true,
+    "required_services": {
+      "zygote": "running",
+      "surfaceflinger": "running",
+      "vold": "running",
+      "netd": "running",
+      "nemuinit": "running",
+      "nemuinput": "running",
+      "nemu_sys_opt": "running",
+      "opengl-gc": "running",
+      "powerbtnd": "running",
+      "audioserver": "running",
+      "cameraserver": "running",
+      "media": "running",
+      "media.swcodec": "running",
+      "mediaextractor": "running",
+      "vendor.gralloc-2-0": "running",
+      "vendor.audio-hal": "running",
+      "vendor.camera-provider-2-4": "running",
+      "vendor.sensors-hal-2-1-multihal": "running"
+    },
+    "root_verified": true,
+    "susfs_verified": true,
+    "vendor_cleanup_verified": true,
+    "system_read_only": true,
+    "stable_boot_observed_seconds": 652.24,
+    "probe_removed": true
+  },
+  "host_tests": 45,
+  "limits": [
+    "Not an Android CTS certification or a guarantee for every app/add-on.",
+    "Core nemuinit bridge hot-kill can leave a stale Binder connection in the vendor framework; use full MuMu cold boots for that bridge.",
+    "Camera services enumerate two devices; physical camera/microphone capture and external Bluetooth hardware were not exercised."
+  ]
+}

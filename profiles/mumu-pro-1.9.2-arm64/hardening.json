@@ -353,5 +353,37 @@
     "/system/bin/powerbtnd": "u:object_r:mumu_core_exec:s0",
     "/system/bin/logwrapper": "u:object_r:mumu_core_exec:s0"
   },
-  "compiled_policy_sha256": "4633c3da7955b071e4d3a212934cdfcc39458b745d93d2cc7cef30296753023a"
+  "compiled_policy_sha256": "1b9751b22d47708ce4ee0753169996fa7416b66561b9a8e2716127709e79c1e7",
+  "required_services": [
+    "zygote",
+    "surfaceflinger",
+    "vold",
+    "netd",
+    "nemuinit",
+    "nemuinput",
+    "nemu_sys_opt",
+    "opengl-gc",
+    "powerbtnd",
+    "audioserver",
+    "cameraserver",
+    "media",
+    "media.swcodec",
+    "mediaextractor",
+    "vendor.gralloc-2-0",
+    "vendor.audio-hal",
+    "vendor.camera-provider-2-4",
+    "vendor.sensors-hal-2-1-multihal"
+  ],
+  "equivalent_policy_sha256": [
+    "be0cbe355c08e0de3a28104bc0004fe5276cd965ee8810b145a5819b23240115"
+  ],
+  "binary_repairs": [
+    {
+      "path": "/system/bin/nemu_sys_opt",
+      "before_sha256": "d88a33f6a60fd32bbbe6c2a0a745871ec3b832b4f2b7331c915de825a2f274e6",
+      "after_sha256": "f9dca50a3bd2c234d30ae2927972789f35772ebfba2fdcf58576e014e120b137",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/nemu-sys-opt.patch.json",
+      "service": "nemu_sys_opt"
+    }
+  ]
 }
