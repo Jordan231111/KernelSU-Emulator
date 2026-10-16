@@ -1,6 +1,22 @@
 #!/system/bin/sh
 # Generated for one verified kernel profile. A failed check stops installation.
 set -eu
+cap_startup_logs() {
+    # Bound retained startup diagnostics without a polling daemon or log copies.
+    # The sentinel preserves trailing newlines in these text logs.
+    for log in /data/adb/ksu-emulator/boot.log /data/adb/ksu-emulator/policy.log /data/adb/ksu-emulator/susfs.log /data/adb/ksu-emulator/platform-service.log; do
+        [ ! -L "$log" ] && [ -f "$log" ] || continue
+        size=$(wc -c <"$log") || continue
+        [ "$size" -gt 65536 ] || continue
+        retained=$(tail -c 65536 "$log" && printf '.') || continue
+        printf '%s' "${retained%.}" >"$log" || :
+    done
+}
+case "${1-}" in
+    --trim-logs) cap_startup_logs; exit 0 ;;
+    '') cap_startup_logs ;;
+    *) exit 64 ;;
+esac
 base=/system/etc/ksu-emulator
 mkdir -p /data/adb/ksu-emulator
 exec >>/data/adb/ksu-emulator/boot.log 2>&1
@@ -26,3 +42,4 @@ fi
 /data/adb/ksud feature set 10003 0
 setprop sys.ksu_emulator.ready 1
 echo 'KernelSU-Emulator ready'
+cap_startup_logs

@@ -18,6 +18,21 @@ python3 ksu.py verify-hardening --instance 0
 
 Use the intended instance index and close apps before stopping it. This changes the policy, reviewed boot checks and the fingerprinted MuMu optimizer restart fix; KernelSU/SUSFS binaries, app data and saved hiding preferences remain intact. No old/new root bundle is needed for this compatibility repair. The full `upgrade` command also applies supported policy migrations automatically.
 
+## Startup-log cap in v1.0.4
+
+The v1.0.4 core bundle adds startup-log retention; its KernelSU and SUSFS binaries are unchanged. `update-policy` alone does not replace the core startup files.
+
+Extract your installed release and v1.0.4 into separate folders. From the v1.0.4 folder, close games and run:
+
+```sh
+python3 ksu.py upgrade --instance 0 --from-bundle /path/to/installed-release/core --bundle core
+python3 ksu.py verify-hardening --instance 0
+python3 ksu.py verify-susfs --instance 0
+python3 ksu.py verify-vendor-cleanup --instance 0
+```
+
+Use the intended instance index and the actual old release path. The updater verifies the installed payload, replaces the startup files, and performs cold-boot checks. Release downloads contain software, not backups of Android data, and can be deleted afterward. Four project logs retain at most 64 KiB each after the startup completion checks; Android and third-party app logs keep their own retention policies.
+
 The sections below are for framework or MuMu-version updates. A new upstream release is a compatibility-review task until a matching profile and bundle are qualified.
 
 ## Before a framework or MuMu update

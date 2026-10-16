@@ -1,6 +1,15 @@
-# Validation record — 2026-10-15
+# Validation record
 
-Latest results: [v1.0.3 observations](validation-v1.0.3.json). Earlier records describe the workloads actually exercised, not exhaustive compatibility. v1.0.3 adds the scene-decoder, native-input and service-lifecycle checks missing from the earlier qualification.
+## v1.0.4 — startup-log retention, 2026-10-16
+
+Only the core startup shell script, init actions, and their checksums changed. KernelSU/SUSFS binaries, the enforcing policy, and the MuMu optimizer repair are unchanged from v1.0.3.
+
+- 47 host tests passed on macOS. The two new POSIX-shell tests cover exact newest-byte retention, trailing newlines, symlink exclusion, unchanged small logs, idempotence, absent logs, and no additional files. These shell tests are skipped on Windows.
+- On Android's actual shell, an oversized project startup log was reduced to 65,536 bytes and retained its final message and trailing newlines. Repeating the trim left the bounded log unchanged. Synthetic log content was cleared afterward.
+- One full MuMu stop/start passed root, enforcing service stability, SUSFS, and vendor-cleanup verification. `/system` was read-only afterward. The four startup logs were 3,562, 214, 388, and 58 bytes.
+- Checks run at startup, Android boot completion, and completion of the enforcing guard. No persistent logging watcher or archived log copy is added. This limits retained startup text after those checks; it is not a continuous streaming limit or a global cap on Android/app logs.
+
+Earlier functional results: [v1.0.3 observations](validation-v1.0.3.json). Those records describe the workloads actually exercised, not exhaustive compatibility. v1.0.3 added scene-decoder, native-input and service-lifecycle coverage; those workloads were not repeated for this logging-only change.
 
 
 Target: MuMuPlayer Pro 1.9.2, Apple Silicon, Android 12, kernel `4.19.195-android-arm64-gedae1315d023`. See the profile for exact image and configuration hashes.

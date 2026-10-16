@@ -62,4 +62,6 @@ A compatibility profile pins the supported MuMu kernel, driver, source revisions
 
 Updates happen in place. No VM backup, clone or retained original file is created. Temporary working files are removed. Boot guards retain small status markers and report failed startup; a fallback is not reported as a successful enforcing installation.
 
+The four project startup logs (`boot.log`, `policy.log`, `susfs.log`, and `platform-service.log` under `/data/adb/ksu-emulator`) retain the newest 64 KiB each. Startup and boot-completion actions trim oversized text logs in place. A log can grow while startup is still writing it; the completion actions trim it again. There is no polling service, rotated copy, or change to Android's crash-reporting configuration. Logs already below the limit are not rewritten.
+
 Use [the update guide](UPDATING.md) for new MuMu, KernelSU Next or SUSFS versions. Test records and historical investigations are kept in [validation](VALIDATION.md) and `research/`.

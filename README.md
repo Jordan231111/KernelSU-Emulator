@@ -18,7 +18,7 @@ Requirements:
 Optional download verification, before extracting:
 
 ```sh
-shasum -a 256 -c SHA256SUMS-v1.0.3.txt
+shasum -a 256 -c SHA256SUMS-v1.0.4.txt
 ```
 
 ## Repair an existing v1.0.1 or v1.0.2 installation
@@ -86,6 +86,7 @@ Changing MuMu's disk mode to Readonly bypasses the private disk containing the i
 - SELinux service identities, file labels and virtual-hardware permissions for this MuMu build.
 - A checksum-locked fix for the MuMu optimizer's restart handling.
 - Installation, policy repair, framework updates and vendor-root cleanup commands.
+- Startup logs retained up to 64 KiB each, trimmed during startup and boot completion without a background watcher or archived copies.
 
 The SUSFS port is not the complete canonical SUSFS implementation or a universal root-hiding guarantee. Zygisk, Xposed and integrity modules are separate installations. MuMu remains an emulator; this project does not provide hardware-backed device attestation.
 

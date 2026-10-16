@@ -9,3 +9,8 @@ on property:vold.decrypt=trigger_restart_framework && property:sys.ksu_emulator.
 
 on property:sys.boot_completed=1 && property:sys.ksu_emulator.ready=1
     exec u:r:ksu:s0 root -- /data/adb/ksud boot-completed
+    exec u:r:ksu:s0 root -- /system/bin/sh /system/etc/ksu-emulator/boot.sh --trim-logs
+
+# The enforcing guard writes its final status after Android reports boot complete.
+on property:init.svc.ksu_mumu_policy_guard=stopped && property:sys.boot_completed=1 && property:sys.ksu_emulator.ready=1
+    exec u:r:ksu:s0 root -- /system/bin/sh /system/etc/ksu-emulator/boot.sh --trim-logs
