@@ -1,3 +1,11 @@
-# Recipe fingerprints require identical text bytes on every checkout host.
-* text=auto eol=lf
-*.png binary
+* text=auto
+*.py text eol=lf
+*.sh text eol=lf
+*.in text eol=lf
+*.rc text eol=lf
+*.patch text eol=lf -whitespace
+*.yml text eol=lf
+*.json text eol=lf
+*.config text eol=lf
+# Policy migration rules are checksum-pinned.
+*.rules text eol=lf
