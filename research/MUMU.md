@@ -94,4 +94,4 @@ Windows MuMu uses a different architecture and boot layout. Windows Android 15 v
 
 ## Subsequent enforcement and SUSFS work
 
-The core installer still preserves the vendor mode described above. The separate `enhance-clone` workflow now repairs the vendor policy/labels and provides genuine enforcement with an independently ported SUSFS LKM. See [the implementation and limitations](../docs/SELINUX-SUSFS.md) and [validation](../docs/VALIDATION.md).
+The core installer still preserves the vendor mode described above. The separate `harden-existing` workflow repairs the vendor policy/labels in place and provides genuine enforcement with an independently ported SUSFS LKM. It creates no backup or instance clone. See [the implementation and limitations](../docs/SELINUX-SUSFS.md) and [validation](../docs/VALIDATION.md).

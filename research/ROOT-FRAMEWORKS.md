@@ -65,6 +65,6 @@ Google's [Play Integrity verdict documentation](https://developer.android.com/go
 
 ## Choice for this repository
 
-Keep **Next as the independently verified root base**. Qualify optional mounting/injection components individually. Treat SUSFS as a separate kernel compatibility deliverable, with its own pinned source, behavior tests and rollback. Prefer real enforcing policy repairs over reporting a fake enforcement state. Preserve the original working instance while testing all of these changes in clones.
+Keep **Next as the independently verified root base**. Qualify optional mounting/injection components individually. Treat SUSFS as a separate kernel compatibility deliverable, with its own pinned source and behavior tests. Prefer real enforcing policy repairs over reporting a fake enforcement state. Maintenance updates the explicitly selected instance in place and creates no backups or recovery copies. New kernel ports can be qualified in an optional fresh, empty lab; no existing instance is cloned.
 
 This selection prioritizes usable features, measured compatibility and maintainable upgrades. It can change when another fork demonstrates a concrete benefit on MuMu and passes the same checks. The [update workflow](../docs/UPDATING.md) makes that decision explicit instead of silently following a moving branch.
