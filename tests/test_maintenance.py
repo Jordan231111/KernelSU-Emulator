@@ -6,9 +6,9 @@ from unittest.mock import Mock, patch
 
 from src.ksu_emulator.common import Error, load_profile, save_json, sha256
 from src.ksu_emulator.install import install, verify
-from src.ksu_emulator.maintenance import compare_capture, read_capture, require_lab, clone_lab
+from src.ksu_emulator.maintenance import compare_capture, read_capture, require_lab
 from src.ksu_emulator.profiles import build_settings, validate_profile
-from src.ksu_emulator.upgrade import upgrade_clone
+from src.ksu_emulator.upgrade import upgrade
 from src.ksu_emulator.upstream import select_manager
 
 
@@ -68,22 +68,13 @@ class CompatibilityTests(unittest.TestCase):
             install(mumu, 2, Path("unused"))
         self.assertFalse(mumu.mock_calls)
 
-    def test_fork_switch_is_rejected_before_cloning(self):
+    def test_fork_switch_is_rejected_before_mutation(self):
         other = copy.deepcopy(self.profile)
         other["ksu_package"] = "another.manager"
         mumu = Mock()
         with patch("src.ksu_emulator.upgrade.validate_bundle", side_effect=[{"profile": self.profile}, {"profile": other}]), self.assertRaises(Error):
-            upgrade_clone(mumu, 2, Path("old"), Path("new"), "Lab")
+            upgrade(mumu, 2, Path("old"), Path("new"))
         self.assertFalse(mumu.mock_calls)
-
-    def test_running_source_is_restarted_if_clone_fails(self):
-        mumu = Mock()
-        mumu.info.return_value = {"state": "running"}
-        mumu.call.side_effect = Error("clone failed")
-        with self.assertRaises(Error):
-            clone_lab(mumu, 2, "Lab")
-        mumu.stop.assert_called_once_with(2)
-        mumu.start.assert_called_once_with(2)
 
     def test_instance_index_reuse_does_not_reuse_lab_permission(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -15,7 +15,7 @@ Think of an ordinary Linux driver loaded after boot. The driver file starts on d
 | Matching `ksud` daemon | Connects userspace management and module stages to the kernel component; its loader resolves the required kernel symbols |
 | Private `system.qcow2` | The selected emulator instance's own virtual Android system disk, containing the module, daemon and startup files |
 | Init configuration and boot script | Verify the target and payload, then load KernelSU automatically at the appropriate boot stage |
-| Host Python CLI | Builds, checks, installs, clones, captures evidence and performs recovery from macOS |
+| Host Python CLI | Builds, checks, installs, updates in place and captures compatibility evidence from macOS |
 
 "Private system disk" means **per-instance storage**, created through MuMu's writable-system support. It does not mean a secret disk format or access to other users' machines. `qcow2` is the virtual disk container; Android sees its normal filesystems inside it.
 
@@ -56,13 +56,17 @@ Original KernelSU v0.9.5 provided the initial proof that the mechanism worked on
 
 The [fork comparison](../research/ROOT-FRAMEWORKS.md) explains the alternatives. More built-in features are useful only if their kernel hooks, daemon, Manager and optional extensions work together on the target.
 
-## What changes during installation and recovery?
+## What changes during installation?
 
-The installer stops the selected instance to obtain a consistent backup, enables MuMu's bootstrap root and writable private system disk, copies the checked payload, installs the matching Manager and publishes the startup entry. It verifies a cold boot, switches vendor root off, then verifies another cold boot.
+The installer selects one instance, enables MuMu's bootstrap root and its private writable system view, copies the checked payload, installs Manager and publishes the startup entry. It verifies a cold boot, switches vendor root off and verifies another boot. Shell access for maintenance then uses a grant in the official Next Manager.
 
-The ordinary installation recovery restores that instance's system disk and settings and removes the Manager it installed. It deliberately retains module data and logs. For updates, the newer `upgrade-clone` path works on a complete separate instance so the original also preserves its Android userdata and Manager state.
+`harden-existing` applies the measured SELinux repair to that same instance. `clean-vendor-root` removes the fingerprinted vendor su/console helpers and their init actions from its private filesystem. The vendor companion's old boot receiver assumes vendor su exists and crashes under enforcement when it does not. A small KernelSU startup script replaces that receiver's useful function by starting the ordinary emulator API service directly. The vendor graphics/input services remain necessary virtual hardware components, not alternative root providers.
 
-The KernelSU module is pinned in memory because its legacy security hooks cannot safely be removed by a casual unload command. Recovery is **restore the disk/startup state and cold boot**. Rebooting discards the running kernel and its loaded extensions.
+No VM backups, automatic clones or saved original system files are created. `upgrade` changes the selected instance in place after checking both bundles. Offline filesystem edits use short-lived conversion files, filesystem checks and atomic replacement; the old disk is not retained. Failed updates stop and report the affected instance rather than restoring it.
+
+The modules are pinned in memory because their hooks cannot safely be removed by a casual unload command. Cold boot discards the running kernel and its extensions. Boot guards can skip a failed optional load or report a permissive fallback without storing an old disk.
+
+Keep MuMu's GUI system setting on **Writable**, which selects the modified private disk. Android's `/system` filesystem is normally **read-only** after vendor cleanup, and root works in that state. These are different controls; changing MuMu's GUI setting to Readonly bypassed the private modifications in a direct marker-file test.
 
 ## Where SUSFS fits
 
@@ -78,12 +82,12 @@ Android's regular user IDs separate apps. SELinux adds another access-control la
 
 In **permissive** mode, SELinux records policy violations but allows the operation to proceed. In **enforcing** mode, it denies the operation. Properly integrated root apps can work with enforcement: KernelSU provides the privileged domain and policy mechanisms they need. An app with a genuinely missing permission should receive a narrow, reviewed rule or an app fix instead of requiring the entire emulator to stop enforcing.
 
-The tested MuMu vendor environment started permissive. Its system labels and service identities were not ready for a simple global mode switch. The enhancement therefore repairs those labels and identities, grant the virtual hardware's required permissions, and test both allowed behavior and an operation that must remain forbidden. Root's own privileged domain is a separate policy decision; global enforcing does not mean every individual domain lacks exceptions.
+The tested MuMu vendor environment started permissive. Its system labels and service identities were not ready for a simple global mode switch. The enhancement therefore repairs those labels and identities, grants the virtual hardware's required permissions, and tests both allowed behavior and an operation that must remain forbidden. Root's own privileged domain is a separate policy decision; global enforcing does not mean every individual domain lacks exceptions.
 
 Displaying "Enforcing" while still allowing forbidden app operations would not be the same repair. The test uses an ordinary app and a world-readable file whose SELinux label should prohibit access, alongside rendering, sensor and normal app-storage checks.
 
 ## How updates stay manageable
 
-Each profile is a written compatibility contract. It pins the target kernel, vendor reference module, source revisions, Manager/daemon and patches. The tooling captures a new MuMu installation, compares it with the known target, prepares explicit candidates, checks patch application, and tests updates in clones.
+Each profile is a written compatibility contract. It pins the target kernel, vendor reference module, source revisions, Manager/daemon and patches. The tooling captures a new MuMu installation, compares it with the known target, prepares explicit candidates, checks patch application, and qualifies updates on the selected instance or a fresh lab.
 
 An app update with unchanged kernel fingerprints can reuse the reviewed build recipe as a candidate. A new framework revision needs protocol and patch review. A changed kernel needs new layout and hook measurements. The [step-by-step update guide](UPDATING.md) documents each path and exactly what to test before calling the result verified.

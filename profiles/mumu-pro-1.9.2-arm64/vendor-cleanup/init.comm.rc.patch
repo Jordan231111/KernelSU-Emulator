@@ -1,0 +1,37 @@
+--- a/target
++++ b/target
+@@ -2,7 +2,6 @@
+ on init
+     insmod /system/lib64/vaddress.ko
+     chmod 666 /dev/vaddress
+-    exec_background - root root -- /system/bin/serial_console /dev/ttyAMA0
+ 
+ on fs
+     mount_all /system/etc/init/hw/fstab.comm
+@@ -35,26 +34,6 @@
+ 
+ #on property:sys.stability.status=processing
+ 
+-on property:persist.nemu.root_state=open
+-    setprop nemu_debug 1
+-
+-on property:persist.nemu.root_state=close
+-    setprop nemu_debug 0
+-
+-on property:nemu_debug=1 && property:persist.nemu.root_state=close
+-    restart adbd
+-
+-on property:nemu_debug=0 && property:persist.nemu.root_state=open
+-    restart adbd
+-
+-service VBoxShell /system/bin/VBoxShell
+-    disabled
+-    seclabel u:r:init:s0
+-
+-service su_daemon /system/xbin/mu_bak --daemon
+-    class late_start
+-    seclabel u:r:su:s0
+-
+ service nemuinput /system/bin/nemuinput
+     class late_start
+ 

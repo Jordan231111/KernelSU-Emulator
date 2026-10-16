@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "base_profile": "mumu-pro-1.9.2-arm64",
+  "id": "mumu-pro-1.9.2-vendor-cleanup",
+  "status": "verified",
+  "files": [
+    {
+      "path": "/system/etc/init/hw/init.comm.rc",
+      "before_sha256": "b6fc68b4ef56696de5308f14644f792de71d3ab4736c971c739ab509a415fbeb",
+      "after_sha256": "56534605123719f88a78eaa8a6a7416bace2897fdee13d3d94ade1f7b4316876",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/vendor-cleanup/init.comm.rc.patch"
+    },
+    {
+      "path": "/system/etc/init.sh",
+      "before_sha256": "8cd69a139a471e29ace7ebcdf315e3507d3aaae155e0233fcc8cc4ab54e3eb5d",
+      "after_sha256": "3329c3da81395e27ad665c1b22b20fecc609240723a244e95ac69ba1e01bb1ef",
+      "patch": "profiles/mumu-pro-1.9.2-arm64/vendor-cleanup/init.sh.patch"
+    }
+  ],
+  "remove_files": [
+    {
+      "path": "/xbin/mu_bak",
+      "sha256": "d04cb9046770e2ae1475b3f3f0ef4943d95050975733db6518ee3b7003ce6b5c"
+    },
+    {
+      "path": "/bin/serial_console",
+      "sha256": "a9ba63adbe655e81b2552b71b6ed8bb1d2fe32cf270cd295ca718a5d9d85fd86"
+    }
+  ],
+  "optional_aliases": [
+    "/xbin/su",
+    "/bin/su",
+    "/bin/VBoxShell"
+  ],
+  "must_be_absent": [
+    "/app/SuperUser",
+    "/etc/init/magisk.rc",
+    "/etc/init/magisk",
+    "/bin/magisk",
+    "/xbin/magisk"
+  ],
+  "companion_package": "com.netease.nemu_vapi_android.nemu",
+  "companion_apk_sha256": "50868583328cbd8f22b05449a7829d8438f2c81151173983e95259bf06049b51",
+  "disabled_receiver": "com.netease.nemu_vapi_android.nemu/com.netease.nemu_vapi_android.receiver.LaunchReceiver",
+  "boot_files": {
+    "/system/etc/ksu-emulator/platform-service.sh": "scripts/mumu-platform-service.sh",
+    "/system/etc/init/ksu-mumu-platform.rc": "scripts/mumu-platform-service.rc"
+  }
+}

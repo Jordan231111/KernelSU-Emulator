@@ -26,6 +26,7 @@ if /data/adb/ksud susfs support >/dev/null 2>&1; then
     exit 25
 fi
 printf '%s' "$boot" >"$state"
+sync
 /data/adb/ksud insmod "$MODDIR/susfs_guard_lkm.ko" enable_log=0 su_ctx=u:r:ksu:s0
 [ "$(/data/adb/ksud susfs version)" = '@SUSFS_VERSION@' ] || exit 26
 [ "$(/data/adb/ksud susfs variant)" = NON-GKI ] || exit 27

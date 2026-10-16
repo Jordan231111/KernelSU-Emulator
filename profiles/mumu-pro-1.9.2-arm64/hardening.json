@@ -211,13 +211,13 @@
     {
       "path": "/system/etc/selinux/plat_file_contexts",
       "before_sha256": "4089d7000ae2b69f74ed7de4409c0a4aa075cd81de1572f2a0cd82651735dabe",
-      "after_sha256": "b898847b9cc8cffb858d7e8491b499bcd08aa46b078d72e6f5f3c2e4e9dc9ad0",
+      "after_sha256": "532111d30fc97f6e297f06fe78e755fa3a36de5f4e6cc855a734759b43ed03be",
       "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-34.patch"
     },
     {
       "path": "/system/etc/selinux/plat_property_contexts",
       "before_sha256": "155f78b0246e58c82633d9e5c082a9e5a439db509bc0ee4ca1f427f0c598323b",
-      "after_sha256": "3a8f75af339b80ad91f3f6b7a9ba97702cd8fdfff55a378cc146141624f437b5",
+      "after_sha256": "d5407beba966c5b930f26a75f89c92646a33c36c4104c9cc55afee5101293667",
       "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-35.patch"
     },
     {
@@ -346,7 +346,12 @@
     "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service.software": "u:object_r:hal_gatekeeper_default_exec:s0",
     "/vendor/bin/hw/android.hardware.gnss@2.0-service.x86": "u:object_r:hal_gnss_default_exec:s0",
     "/vendor/bin/hw/android.hardware.power.stats@1.0-service.mock": "u:object_r:hal_power_stats_default_exec:s0",
-    "/system/bin/opengl-gc": "u:object_r:mumu_opengl_exec:s0"
+    "/system/bin/opengl-gc": "u:object_r:mumu_opengl_exec:s0",
+    "/system/bin/nemuinit": "u:object_r:mumu_core_exec:s0",
+    "/system/bin/nemuinput": "u:object_r:mumu_core_exec:s0",
+    "/system/bin/nemu_sys_opt": "u:object_r:mumu_core_exec:s0",
+    "/system/bin/powerbtnd": "u:object_r:mumu_core_exec:s0",
+    "/system/bin/logwrapper": "u:object_r:mumu_core_exec:s0"
   },
-  "compiled_policy_sha256": "e52e0fd1d9d6a26c9c663144386fc0733dfdb6eb221e3420f7243af18bc8ca28"
+  "compiled_policy_sha256": "4633c3da7955b071e4d3a212934cdfcc39458b745d93d2cc7cef30296753023a"
 }

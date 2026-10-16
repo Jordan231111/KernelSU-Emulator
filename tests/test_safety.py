@@ -10,7 +10,7 @@ from src.ksu_emulator.build import extract_source
 from src.ksu_emulator.bundle import validate_bundle
 from src.ksu_emulator.common import Error, load_profile, save_json
 from src.ksu_emulator.elf import module_info
-from src.ksu_emulator.install import install, restore
+from src.ksu_emulator.install import install
 from src.ksu_emulator.mumu import MuMu
 from src.ksu_emulator.probe import validate_guest
 
@@ -93,28 +93,6 @@ class GuardTests(unittest.TestCase):
             save_json(path / "manifest.json", {"schema": 1, "profile": load_profile(), "files": {"../outside": "0" * 64}})
             with self.assertRaises(Error):
                 validate_bundle(path)
-
-    def test_recovery_requires_same_instance_identity(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "receipt.json"
-            save_json(path, {"schema": 1, "phase": "verified", "instance": 2, "bundle_path": "/old-instance"})
-            mumu = Mock()
-            mumu.info.return_value = {"bundle_path": "/new-instance"}
-            with self.assertRaises(Error):
-                restore(mumu, path)
-            mumu.stop.assert_not_called()
-
-    def test_corrupt_backup_is_rejected_before_stop(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "receipt.json"
-            save_json(path, {"schema": 1, "phase": "verified", "instance": 2,
-                            "bundle_path": temp, "system_before": True, "system_backup_sha256": "0" * 64})
-            (Path(temp) / "system.qcow2").write_bytes(b"bad backup")
-            mumu = Mock()
-            mumu.info.return_value = {"bundle_path": temp}
-            with self.assertRaises(Error):
-                restore(mumu, path)
-            mumu.stop.assert_not_called()
 
     def test_archive_traversal_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

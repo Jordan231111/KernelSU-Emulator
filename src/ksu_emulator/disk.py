@@ -1,4 +1,4 @@
-"""Repair labels on a stopped clone's private ext4 system disk.
+"""Repair labels on a stopped instance's private ext4 system disk.
 
 MuMu's process-specific file views omit some vendor files. Offline inode access
 avoids those views and never edits the application's shared system image.
@@ -15,7 +15,6 @@ import uuid
 from pathlib import Path
 
 from .common import ROOT, Error, run, sha256
-from .maintenance import require_lab
 from .mumu import MuMu
 
 
@@ -81,13 +80,10 @@ class Ext4Tools:
                     "ksu-emulator-toolchain:22.04", program, *args], timeout=180)
 
 
-def relabel_system_clone(mumu: MuMu, index: int, trees: list[str], tools: Ext4Tools | None = None) -> dict:
-    lab = require_lab(mumu, index)
-    if lab.get("source_index") is None:
-        raise Error("Offline hardening requires a clone, preserving a complete original instance")
+def relabel_system(mumu: MuMu, index: int, trees: list[str], tools: Ext4Tools | None = None) -> dict:
     device = mumu.info(index)
     if device["state"] != "stopped":
-        raise Error("Stop the selected clone before its offline disk repair")
+        raise Error("Stop the selected instance before its offline disk repair")
     if not trees or any(not re.fullmatch(r"/etc/mumu-configs/[A-Za-z0-9_-]+", p) for p in trees):
         raise Error("Offline labels are limited to explicit MuMu vendor subdirectories")
     disk = Path(device["bundle_path"]).resolve() / "system.qcow2"
@@ -173,7 +169,7 @@ def relabel_system_clone(mumu: MuMu, index: int, trees: list[str], tools: Ext4To
             if after != sha256(rebuilt):
                 raise Error("Repaired disk copy failed checksum verification")
             if mumu.info(index)["state"] != "stopped" or sha256(disk) != before:
-                raise Error("The clone changed during the disk repair; the original disk was retained")
+                raise Error("The instance changed during the disk repair; the original disk was retained")
             staged.chmod(stat.S_IMODE(disk.stat().st_mode))
             staged.replace(disk)
         finally:

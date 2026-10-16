@@ -1,6 +1,6 @@
 # Guest qualification
 
-These diagnostics exercise the real emulator and must run in a disposable registered clone with approved Shell root, the matching SUSFS module, and actual SELinux enforcing. They create their own test files and temporary mount; they do not install additional root grants. UID 19999 must be unused. The host harness refuses an occupied package UID and an instance not made by this repository's lab tools.
+These diagnostics exercise the real emulator and run on an explicitly selected instance with approved Shell root, the matching SUSFS module, and actual SELinux enforcing. They create their own test files and temporary mount; they do not install additional root grants. UID 19999 must be unused. The host harness refuses an occupied package UID.
 
 ## Native probes
 
@@ -17,11 +17,11 @@ docker run --rm -v "$PWD:/repo:ro" -v "$PWD/out/guest-tests/native:/out" \
 python3 tests/guest/qualify.py --instance 6
 ```
 
-Use the actual clone index. The harness tests protected path access (including `O_PATH` and target aliases), unchanged Unix modes, concurrent path/directory activity, kstat, mapped-file observations, open redirection, bind-mount hiding, fdinfo and 30 new namespaces. It writes a JSON record in `out/guest-tests/` and cold-boots the clone afterward to clear transient map rules. The simulated unprivileged processes use UID 19999, zero effective capabilities and the `untrusted_app` SELinux domain. They complement the real APK test; they do not reproduce every Android zygote/category/profile detail.
+Use the actual instance index. The harness tests protected path access (including `O_PATH` and target aliases), unchanged Unix modes, concurrent path/directory activity, kstat, mapped-file observations, open redirection, bind-mount hiding, fdinfo and 30 new namespaces. It writes a JSON record in `out/guest-tests/` and cold-boots the instance afterward to clear transient map rules. The simulated unprivileged processes use UID 19999, zero effective capabilities and the `untrusted_app` SELinux domain. They complement the real APK test; they do not reproduce every Android zygote/category/profile detail.
 
 The getdents stress has eight path workers and a separate observer reading the output buffer concurrently with directory syscalls. Its result records exactly how much was tested; it is not a claim of exhaustive scheduling coverage.
 
-Do not run a previously failed binary repeatedly after a panic. Preserve the host/guest logs and use the preserved original instance for recovery.
+Do not run a previously failed binary repeatedly after a panic. Inspect the host/guest logs and correct the failing hook before another attempt. The harness does not make backups.
 
 ## Real Android application
 

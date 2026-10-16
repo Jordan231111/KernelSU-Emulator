@@ -202,19 +202,28 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
     adb = mumu.connect(index)
     was_hardened = adb.shell("getprop sys.ksu_mumu_policy.enforcing_ready") == "1" and adb.su("cat /sys/fs/selinux/enforce") == "1"
     if adb.shell("getprop sys.ksu_mumu_policy.fallback"):
-        raise Error("Resolve the SELinux hardening recovery state before adding another kernel component")
+        raise Error("Resolve the SELinux hardening fallback state before adding another kernel component")
     stage = "/data/local/tmp/mumu-susfs-" + uuid.uuid4().hex + ".zip"
     adb.push(bundle / manifest["archive"], stage)
     try:
         print(adb.su("/data/adb/ksud module install " + shlex.quote(stage)), flush=True)
+        adb.shell("rm -f " + shlex.quote(stage))
         adb.su(f"rm -f /data/adb/modules/{spec['module_id']}/disable /data/adb/modules_update/{spec['module_id']}/disable")
         mumu.stop(index)
         mumu.start(index)
+        if was_hardened:
+            from .hardening import wait_hardening
+            if not wait_hardening(mumu, index, profile["id"])["verified"]:
+                raise Error("SELinux service checks failed after SUSFS installation")
         result = verify_susfs(mumu, index, profile["id"])
         if not result["verified"]:
             raise Error("SUSFS startup did not complete")
         return result
     except (Error, OSError, ValueError) as exc:
+        try:
+            adb.shell("rm -f " + shlex.quote(stage), check=False)
+        except (Error, OSError):
+            pass
         # Its own pending-boot guard prevents a failed boot from loading it again.
         # Also request the standard module disable path when ADB is available.
         try:
@@ -224,6 +233,6 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
                 adb.su("rm -f /data/adb/ksu-emulator/enforcing-pending")
             mumu.stop(index)
             mumu.start(index)
-        except (Error, OSError) as recovery:
-            raise Error(f"SUSFS installation failed: {exc}. Recovery needs attention: {recovery}. Use the preserved original instance or disable {spec['module_id']} in Manager.") from exc
+        except (Error, OSError) as disable_error:
+            raise Error(f"SUSFS installation failed: {exc}. Could not disable the module: {disable_error}. Disable {spec['module_id']} in Manager.") from exc
         raise Error(f"SUSFS installation failed: {exc}. The module was disabled and the instance cold-booted.") from exc

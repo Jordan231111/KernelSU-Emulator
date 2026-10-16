@@ -12,6 +12,7 @@ if [ -f "$base/enforcing-pending" ] && [ "$(cat "$base/enforcing-pending")" != "
     exit 1
 fi
 printf '%s' "$boot" >"$base/enforcing-pending"
+sync
 printf 1 >/sys/fs/selinux/enforce
 [ "$(cat /sys/fs/selinux/enforce)" = 1 ]
 setprop sys.ksu_mumu_policy.enforcing_ready 1
@@ -19,6 +20,7 @@ i=0
 while [ "$i" -lt 90 ]; do
     if [ -f "$base/enforcing-boot-ok" ] && [ "$(cat "$base/enforcing-boot-ok")" = "$boot" ]; then
         rm -f "$base/enforcing-pending"
+        sync
         echo 'Enforcing boot completed; recovery watchdog disarmed.'
         exit 0
     fi

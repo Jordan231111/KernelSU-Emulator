@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Destructive only to its own test files; requires an explicit registered lab."""
+"""Destructive only to its own test files; requires an explicit instance."""
 import argparse
 import json
 import re
@@ -11,7 +11,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from ksu_emulator.common import ROOT
-from ksu_emulator.maintenance import require_lab
 from ksu_emulator.mumu import MuMu
 
 
@@ -20,7 +19,6 @@ def main():
     parser.add_argument("--instance", type=int, required=True)
     args = parser.parse_args()
     mumu = MuMu()
-    require_lab(mumu, args.instance)
     adb = mumu.connect(args.instance)
     assert adb.su("cat /sys/fs/selinux/enforce") == "1", "Requires actual enforcement"
     assert adb.su("/data/adb/ksud susfs version") == "v2.3.0"

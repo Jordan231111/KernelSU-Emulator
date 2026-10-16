@@ -4,8 +4,8 @@
   "base_profile": "mumu-pro-1.9.2-arm64",
   "status": "verified",
   "module_id": "mumu_susfs",
-  "module_version": "1.0.0",
-  "module_version_code": 10000,
+  "module_version": "1.0.1",
+  "module_version_code": 10001,
   "susfs_version": "v2.3.0",
   "source_commit": "0b197bfd3d3402ee108e19c66ed3293d9d14481a",
   "source": {

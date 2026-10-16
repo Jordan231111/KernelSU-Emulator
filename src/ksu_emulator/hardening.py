@@ -1,4 +1,4 @@
-"""Version-locked MuMu SELinux repairs, always performed on an upgrade clone."""
+"""Version-locked SELinux repairs applied to an explicitly selected instance."""
 from __future__ import annotations
 
 import hashlib
@@ -7,20 +7,19 @@ import re
 import shlex
 import shutil
 import tempfile
+import time
 import uuid
 import zipfile
 from pathlib import Path
 
 from .build import download
-from .bundle import validate_bundle
+from .bundle import SYSTEM_FILES, validate_bundle
 from .common import PROFILE_ID, ROOT, Error, load_profile, run, save_json, sha256
-from .disk import Ext4Tools, relabel_system_clone
+from .disk import Ext4Tools, relabel_system
 from .install import verify
-from .maintenance import require_lab
 from .mumu import MuMu
 from .profiles import HEX256, matches, repository_file
 from .susfs import install_susfs, validate_susfs
-from .upgrade import upgrade_clone
 
 
 def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
@@ -117,24 +116,52 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> di
     actual_labels = {parts[-1]: parts[0] for line in observed.splitlines() if len(parts := line.split()) >= 2}
     result["critical_labels_match"] = all(actual_labels.get(path) == context for path, context in labels.items())
     result["init_domain_correct"] = adb.su("cat /proc/1/attr/current").rstrip("\x00") == "u:r:init:s0"
+    services = ("zygote", "surfaceflinger", "vold", "netd", "nemuinit", "nemuinput", "nemu_sys_opt", "opengl-gc", "powerbtnd")
+    states = adb.su("; ".join("getprop init.svc." + name for name in services)).splitlines()
+    result["service_states"] = dict(zip(services, states))
+    result["core_services_running"] = len(states) == len(services) and all(value == "running" for value in states)
     result["verified"] = all((result["verified"], result["recipe_matches"], result["installed_files_match"],
-                              result["critical_labels_match"], result["init_domain_correct"]))
+                              result["critical_labels_match"], result["init_domain_correct"], result["core_services_running"]))
     return result
 
 
-def enhance_clone(mumu: MuMu, source_index: int, old_bundle: Path, core_bundle: Path,
-                  susfs_bundle: Path | None, name: str, experimental: bool = False) -> dict:
+def wait_hardening(mumu: MuMu, index: int, profile_id: str, timeout: int = 30) -> dict:
+    """Android's boot flag precedes the core-service stability observation."""
+    deadline = time.monotonic() + timeout
+    while True:
+        result = verify_hardening(mumu, index, profile_id)
+        if result["verified"] or result["fallback"] or time.monotonic() >= deadline:
+            return result
+        time.sleep(1)
+
+
+def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
+                    susfs_bundle: Path | None = None, experimental: bool = False) -> dict:
     core = validate_bundle(core_bundle.expanduser().resolve())
     profile, spec = specification(core["profile"]["id"])
     if spec["status"] != "verified" and not experimental:
-        raise Error("Candidate hardening requires --experimental; changes will be restricted to a new clone")
+        raise Error("Candidate hardening requires --experimental")
     if susfs_bundle:
         susfs_manifest = validate_susfs(susfs_bundle.expanduser().resolve())
         if susfs_manifest["profile"] != profile:
             raise Error("Core and SUSFS bundles must use the same compatibility profile")
         if susfs_manifest["specification"]["status"] != "verified" and not experimental:
             raise Error("Candidate SUSFS requires --experimental")
-    ext4 = Ext4Tools()  # Check prerequisites before stopping or cloning an instance.
+    digest = recipe_hash(spec)
+    if not verify(mumu, target, root=True, profile_id=profile["id"])["persistent_install_ready"]:
+        raise Error("Hardening requires a verified base and authorized Shell")
+    adb = mumu.connect(target)
+    for name in sorted(SYSTEM_FILES | {"ksu-emulator.rc"}):
+        remote = "/system/etc/init/ksu-emulator.rc" if name.endswith(".rc") else "/system/etc/ksu-emulator/" + name
+        if adb.su("sha256sum " + remote).split()[0] != core["files"][name]:
+            raise Error("Installed core differs from the selected bundle: " + name)
+    if adb.su("if [ -e /system/etc/ksu-mumu-policy/state.json ]; then echo installed; fi"):
+        result = wait_hardening(mumu, target, profile["id"])
+        if not result["verified"]:
+            raise Error("An existing hardening recipe differs or is unhealthy; an explicitly reviewed policy migration is required")
+        susfs = install_susfs(mumu, target, susfs_bundle, experimental) if susfs_bundle else None
+        return {"instance": target, "already_hardened": True, "hardening": result, "susfs": susfs}
+    ext4 = Ext4Tools()  # Check prerequisites before stopping an instance.
     if not shutil.which("patch"):
         raise Error("The patch utility is required")
     tool_apk = download(spec["policy_tool"]["apk"], ROOT / ".work/cache")
@@ -142,37 +169,31 @@ def enhance_clone(mumu: MuMu, source_index: int, old_bundle: Path, core_bundle: 
         policy_tool = apk.read(spec["policy_tool"]["member"])
     if hashlib.sha256(policy_tool).hexdigest() != spec["policy_tool"]["sha256"]:
         raise Error("Policy utility does not match the reviewed binary")
-    digest = recipe_hash(spec)
-    upgraded = upgrade_clone(mumu, source_index, old_bundle, core_bundle, name, experimental)
-    target = upgraded["upgraded_instance"]
-    require_lab(mumu, target)
     record_path = ROOT / "out/enhancements" / (uuid.uuid4().hex + ".json")
-    record = {"schema": 1, "source_instance": source_index, "instance": target,
-              "profile": profile["id"], "phase": "base-upgraded", "recipe_sha256": digest,
-              "upgrade_record": upgraded["record"], "recovery": "Use the complete preserved source instance"}
+    record = {"schema": 1, "instance": target,
+              "profile": profile["id"], "phase": "preparing", "recipe_sha256": digest}
     save_json(record_path, record)
     print(f"Enhancement record: {record_path}", flush=True)
     parent = ROOT / ".work/hardening"
     parent.mkdir(parents=True, exist_ok=True)
+    stage = None
     try:
         with tempfile.TemporaryDirectory(prefix="stage-", dir=parent) as temp:
             work = Path(temp)
             adb = mumu.connect(target)
             if adb.su("if [ -e /system/etc/ksu-mumu-policy ]; then echo conflict; fi"):
-                raise Error("This instance already has hardening changes. Use upgrade-clone for a framework-only update; policy migrations require a newly reviewed recipe")
+                raise Error("This instance already has hardening changes. Use upgrade for a framework-only update; policy migrations require a newly reviewed recipe")
             boot = adb.su("cat /proc/sys/kernel/random/boot_id")
-            originals, replacements = {}, {}
+            replacements = {}
             for i, item in enumerate(spec["files"]):
                 path = item["path"]
                 before = adb.bytes("su -c " + shlex.quote("cat " + shlex.quote(path)))
-                originals[path] = before
                 replacements[path] = apply_text_patch(before, item, work)
             policy = adb.bytes("su -c " + shlex.quote("cat " + spec["policy_path"]))
             if hashlib.sha256(policy).hexdigest() != spec["policy_before_sha256"]:
                 raise Error("Vendor policy differs from the reviewed MuMu image")
-            originals[spec["policy_path"]] = policy
             if mumu.connect(target).serial != adb.serial or adb.su("cat /proc/sys/kernel/random/boot_id") != boot or recipe_hash(spec) != digest:
-                raise Error("Clone or repair recipe changed during preflight")
+                raise Error("Instance or repair recipe changed during preflight")
 
             stage = "/data/local/tmp/mumu-policy-" + uuid.uuid4().hex
             # ADB still runs as Shell. Its upload directory must remain writable
@@ -207,7 +228,7 @@ def enhance_clone(mumu: MuMu, source_index: int, old_bundle: Path, core_bundle: 
                 raise Error("Compiled policy differs from the independently inspected result")
             replacements[spec["policy_path"]] = compiled
             adb.su(f"{stage}/policy-tool --live --apply {stage}/policy.rules")
-            adb.su("mount -o remount,rw /system; mkdir -p /system/etc/ksu-mumu-policy/originals; chmod 0700 /system/etc/ksu-mumu-policy/originals")
+            adb.su("mount -o remount,rw /system; mkdir -p /system/etc/ksu-mumu-policy")
 
             def install_file(path: str, data: bytes, mode: str = "0644"):
                 remote = stage + "/file"
@@ -219,11 +240,6 @@ def enhance_clone(mumu: MuMu, source_index: int, old_bundle: Path, core_bundle: 
                 if got != hashlib.sha256(data).hexdigest():
                     raise Error(f"Installed file failed readback: {path}")
 
-            saved = {}
-            for i, (path, data) in enumerate(originals.items()):
-                original = f"/system/etc/ksu-mumu-policy/originals/{i:03d}"
-                install_file(original, data, "0600")
-                saved[path] = {"path": original, "sha256": hashlib.sha256(data).hexdigest()}
             for path, data in replacements.items():
                 install_file(path, data)
             # Restore ordinary vendor labels. MuMu's protected library trees are
@@ -235,7 +251,7 @@ def enhance_clone(mumu: MuMu, source_index: int, old_bundle: Path, core_bundle: 
                 if name.endswith(".rc"):
                     continue  # Publish the boot action last.
                 install_file("/system/etc/ksu-mumu-policy/" + name, repository_file(source).read_bytes(), "0755")
-            state = {"schema": 1, "recipe_sha256": digest, "profile": profile["id"], "originals": saved,
+            state = {"schema": 1, "recipe_sha256": digest, "profile": profile["id"],
                      "installed": {path: hashlib.sha256(data).hexdigest() for path, data in replacements.items()}}
             install_file("/system/etc/ksu-mumu-policy/state.json", (json.dumps(state, indent=2) + "\n").encode())
             install_file("/system/etc/init/ksu-mumu-policy.rc", repository_file(spec["boot_files"]["ksu-mumu-policy.rc"]).read_bytes())
@@ -244,28 +260,33 @@ def enhance_clone(mumu: MuMu, source_index: int, old_bundle: Path, core_bundle: 
             record["phase"] = "guest-files-prepared"
             save_json(record_path, record)
             mumu.stop(target)
-            record["offline_labels"] = relabel_system_clone(mumu, target, spec["offline_label_trees"], ext4)
+            record["offline_labels"] = relabel_system(mumu, target, spec["offline_label_trees"], ext4)
             record["phase"] = "disk-labeled"
             save_json(record_path, record)
         mumu.start(target)
-        result = verify_hardening(mumu, target, profile["id"])
+        result = wait_hardening(mumu, target, profile["id"])
         if not result["verified"]:
-            raise Error("The clone did not complete a genuinely enforcing boot: " + json.dumps(result))
+            raise Error("The instance did not complete a genuinely enforcing boot: " + json.dumps(result))
         if susfs_bundle:
             record["susfs"] = install_susfs(mumu, target, susfs_bundle, experimental)
-        record["hardening"] = verify_hardening(mumu, target, profile["id"])
+        record["hardening"] = wait_hardening(mumu, target, profile["id"])
         record["root"] = verify(mumu, target, root=True, profile_id=profile["id"])
         if not record["hardening"]["verified"] or not record["root"]["persistent_install_ready"]:
             raise Error("Combined installation verification failed")
         record["phase"] = "verified"
         save_json(record_path, record)
-        return {"source_instance": source_index, "enhanced_instance": target, "record": str(record_path),
+        return {"instance": target, "record": str(record_path),
                 "hardening": record["hardening"], "susfs": record.get("susfs"), "root": record["root"]}
     except Exception as exc:
+        if stage:
+            try:
+                adb.su("rm -rf " + shlex.quote(stage), check=False)
+            except (Error, OSError):
+                pass
         record.update({"phase": "failed", "error": str(exc)})
         save_json(record_path, record)
         try:
             mumu.stop(target)
         except (Error, OSError) as stop_error:
-            raise Error(f"Enhancement failed: {exc}. Stop clone {target}: {stop_error}. Original {source_index} is preserved. Record: {record_path}") from exc
-        raise Error(f"Enhancement failed and clone {target} was stopped: {exc}. Original {source_index} is preserved. Record: {record_path}") from exc
+            raise Error(f"Enhancement failed: {exc}. Stop instance {target}: {stop_error}. Record: {record_path}") from exc
+        raise Error(f"Enhancement failed and instance {target} was stopped: {exc}. Record: {record_path}") from exc

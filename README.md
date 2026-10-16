@@ -1,10 +1,10 @@
 # KernelSU-Emulator
 
-**KernelSU Next + SUSFS with genuine SELinux enforcing on MuMuPlayer Pro 1.9.2 for Apple Silicon.** The repository contains the matched kernel ports, installer, clone upgrades, recovery, and repeatable qualification tools.
+**KernelSU Next + SUSFS with genuine SELinux enforcing on MuMuPlayer Pro 1.9.2 for Apple Silicon.** Includes matched kernel ports, an in-place installer/updater, vendor-root removal and qualification tools.
 
-MuMu keeps its vendor kernel and virtual hardware. The selected instance's private Android system disk stores the root module and boot instructions. A second, separately built kernel module supplies SUSFS through KernelSU's standard module lifecycle. The enforcing configuration repairs MuMu's labels, service identities and driver policy.
+MuMu keeps its working vendor kernel and virtual hardware. The selected instance's private Android system disk stores KernelSU's module and boot instructions. A second kernel module provides SUSFS. The enforcing configuration repairs MuMu's labels, service identities and driver policy.
 
-Read [how everything works](docs/ARCHITECTURE.md), the [framework comparison](research/ROOT-FRAMEWORKS.md), [SELinux and SUSFS details](docs/SELINUX-SUSFS.md), and [validation evidence](docs/VALIDATION.md).
+Read [how everything works](docs/ARCHITECTURE.md), the [framework comparison](research/ROOT-FRAMEWORKS.md), [SELinux/SUSFS details](docs/SELINUX-SUSFS.md), and [validation evidence](docs/VALIDATION.md).
 
 ## Supported target
 
@@ -13,102 +13,81 @@ Read [how everything works](docs/ARCHITECTURE.md), the [framework comparison](re
 | Host | macOS, Apple Silicon |
 | Emulator / Android | MuMuPlayer Pro **1.9.2**, Android 12 ARM64 |
 | Kernel | `4.19.195-android-arm64-gedae1315d023` |
-| Root | Custom KernelSU Next legacy port; official v3.4.2 Manager/daemon, 33355 / UAPI 5 |
-| SUSFS | Independent LKM implementation, protocol v2.3.0, specifically ported to MuMu 4.19 |
-| SELinux | Actual enforcing after the optional full enhancement; ordinary app isolation tested |
+| Root | Custom Next legacy port; official v3.4.2 Manager/daemon, 33355 / UAPI 5 |
+| SUSFS | Independent LKM, protocol v2.3.0, ported to MuMu 4.19 |
+| SELinux | Actual enforcing after `harden-existing`; ordinary app isolation tested |
 
-Exact app/kernel/configuration/driver fingerprints and source revisions are pinned. Other MuMu versions require a candidate profile and qualification. This does not promise universal root invisibility or hardware-backed Play Integrity certification. Windows MuMu installation is not implemented.
+Exact app/kernel/configuration/driver fingerprints and sources are pinned. Other versions need a candidate profile and qualification. Universal root invisibility and hardware-backed Play Integrity certification are not claimed. Windows MuMu installation is not implemented.
 
-## Install the complete configuration
+## Install
 
-Requirements: Python **3.11.8+**, Android Platform Tools (`adb`), `qemu-img`, MuMuPlayer Pro, and `e2fsprogs` for the offline label repair (`brew install qemu e2fsprogs`). Keep the MuMu launcher open. Docker is needed to build; a prebuilt installation can use native e2fsprogs without Docker.
+Requirements: Python **3.11.8+**, Android Platform Tools (`adb`), MuMuPlayer Pro, `qemu-img` and `e2fsprogs` (`brew install qemu e2fsprogs`). Keep the MuMu launcher open. Docker is needed to build; prebuilt installation can use native filesystem tools.
 
-Clone this repository at the release tag corresponding to your bundle. Obtain the complete bundle from [Releases](https://github.com/Jordan231111/KernelSU-Emulator/releases), and extract its `core/` and `susfs/` directories into `out/releases/v1.0.0/`. Keep old release bundles in their own directories.
-
-Alternatively, build both components from pinned sources:
+Use the repository tag matching your [release bundle](https://github.com/Jordan231111/KernelSU-Emulator/releases). Extract its `core/` and `susfs/` directories into `out/releases/v1.0.1/`, or build them:
 
 ```sh
-python3 ksu.py build --output out/releases/v1.0.0/core
-python3 ksu.py build-susfs --output out/releases/v1.0.0/susfs
-```
-
-Create a clean base instance:
-
-```sh
+python3 ksu.py build --output out/releases/v1.0.1/core
+python3 ksu.py build-susfs --output out/releases/v1.0.1/susfs
 python3 ksu.py list
-python3 ksu.py create-lab --name 'KernelSU Base'
 ```
 
-Use the returned index; **2 below is only an example**:
+Select the exact instance by index and name. **2 below is an example; substitute your index.** Remove an existing Magisk installation through its own Complete Uninstall first, then confirm its modules and startup services are gone. Do not layer this over another root framework. If you want a fresh development instance, `create-lab --name 'KernelSU Lab'` creates an empty instance; it copies no existing instance.
 
 ```sh
-python3 ksu.py install --instance 2 --bundle out/releases/v1.0.0/core
+python3 ksu.py install --instance 2 --bundle out/releases/v1.0.1/core
 ```
 
-Open **KernelSU Next → Superuser → Shell** and enable its root permission. This is required for the host to perform subsequent maintenance through authorized KernelSU root. Then:
+Open **KernelSU Next → Superuser → Shell** and enable root for Shell. Then apply enforcement and SUSFS to the **same instance**:
 
 ```sh
 python3 ksu.py verify --instance 2 --root
-python3 ksu.py enhance-clone --instance 2 \
-  --from-bundle out/releases/v1.0.0/core \
-  --bundle out/releases/v1.0.0/core \
-  --susfs-bundle out/releases/v1.0.0/susfs \
-  --name 'KernelSU Next + SUSFS Enforcing'
+python3 ksu.py harden-existing --instance 2 \
+  --bundle out/releases/v1.0.1/core \
+  --susfs-bundle out/releases/v1.0.1/susfs
+python3 ksu.py clean-vendor-root --instance 2
+python3 ksu.py verify --instance 2 --root
+python3 ksu.py verify-hardening --instance 2
+python3 ksu.py verify-susfs --instance 2
+python3 ksu.py verify-vendor-cleanup --instance 2
 ```
 
-Use the **new enhanced instance** printed by the command. The complete original remains your recovery copy. Verify the new index, for example 3:
+The cleanup removes fingerprinted vendor su/console helpers and their startup code from the private disk. It disables the vendor companion's obsolete su-dependent boot receiver and starts its ordinary emulator API service through the checked KernelSU boot helper. It preserves the emulator's graphics/input services and user applications. Unknown helper binaries or another installed framework are rejected for review.
+
+Manager should show **Working**, Next v3.4.2 and **SuSFS Supported | v2.3.0 (NON-GKI)**. `LKM (GKI1)`, `Custom`, `Manual` and `Jailbreak mode` describe the integration. Grant root to each other app individually.
+
+Core-only `install` preserves MuMu's original SELinux mode. `harden-existing` adds enforcement; omit `--susfs-bundle` to omit SUSFS. A matching SUSFS update uses `install-susfs --instance INDEX --bundle PATH`.
+
+## MuMu Writable versus Android read-only
+
+Keep **MuMu's system-disk setting on Writable**. On the tested version, switching it to Readonly selects a different system view and bypasses the modified private disk; it is not simply write-protecting the installed files. A marker-file test confirmed this behavior.
+
+Inside Android, `/system` normally mounts **read-only** after vendor cleanup. KernelSU and SUSFS work with that mount. Maintenance temporarily writes the selected disk; cold boot returns it to the normal read-only mount.
+
+## Updates and storage
+
+Follow [the update guide](docs/UPDATING.md) for new MuMu, Next, SUSFS, policy or fork versions. For a framework-only update, authorize Shell and provide the installed and new matching bundles:
 
 ```sh
-python3 ksu.py verify --instance 3 --root
-python3 ksu.py verify-hardening --instance 3
-python3 ksu.py verify-susfs --instance 3
-```
-
-Manager should show **Working**, Next v3.4.2, and **SuSFS Supported | v2.3.0 (NON-GKI)**. `LKM (GKI1)`, `Custom`, `Manual`, and `Jailbreak mode` describe this port's integration; they do not mean a generic GKI image was installed. Grant other apps root individually in Manager.
-
-The core-only `install` command preserves MuMu's original SELinux mode. `enhance-clone` installs the enforcing repairs. Omit `--susfs-bundle` for an enforcing root clone without SUSFS. A separately installed matching SUSFS bundle uses `install-susfs --instance INDEX --bundle PATH`.
-
-## Updating an existing installation
-
-Follow [the update guide](docs/UPDATING.md). It covers a new MuMu app with the same kernel, a changed kernel, new Next releases, SUSFS updates, policy updates and a different root fork.
-
-For a framework-only update, authorize Shell and retain both complete bundles:
-
-```sh
-python3 ksu.py upgrade-clone --instance 3 \
+python3 ksu.py upgrade --instance 2 \
   --from-bundle out/releases/OLD/core \
   --bundle out/releases/NEW/core
 ```
 
-Use `enhance-clone` to add enforcement to a core-only instance. It deliberately rejects an already hardened instance; policy migrations require a reviewed migration or a new clone from a core-only base. Manager's generic boot-image/kernel update buttons are not the update procedure for MuMu's custom layout.
+This updates the selected instance directly. It verifies the installed files and Manager against the old bundle, checks the new bundle, and tests two cold boots. The existing SELinux recipe must remain compatible. A changed policy recipe requires a reviewed migration; it is not applied blindly over an older repair.
 
-No command automatically trusts or installs a moving upstream branch. Candidates require `--experimental` and are tested in registered clones.
+**No backup disks, recovery copies, saved original system files or automatic instance clones are created.** The former `restore`, `clone-lab`, `upgrade-clone` and `enhance-clone` workflows are removed. Disk rewrites use temporary working files and atomic replacement; normal completion and handled failures remove those files. Small JSON reports contain checksums/results, not recoverable disk contents. Power loss or unreachable Android can leave temporary staging files; inspect and remove those only while the instance is stopped.
 
-## Recovery
-
-For an enhancement or upgrade, select the preserved original instance. This restores the complete environment, including Android userdata; a system-only backup cannot undo an APK/database migration.
-
-The initial core installer also prints a recovery receipt:
-
-```sh
-python3 ksu.py restore out/backups/INSTANCE-DIRECTORY/receipt.json
-```
-
-That restores the selected instance's original system disk/settings and removes the Manager installed by the tool. It retains `/data/adb` module data and logs; it is not a full userdata backup. Keep the receipt and its checksummed backup files.
-
-SUSFS can be disabled or removed in Next's Modules screen, followed by a full stop/start. Both kernel modules are pinned in memory: **do not use `rmmod`**. A failed SUSFS startup is skipped on the following boot; a failed enforcing boot falls back to the previous permissive mode. Verification reports that fallback as failure. See [recovery details](docs/SELINUX-SUSFS.md#recovery).
+Installation failures stop the selected instance and report the failed check. They do not restore old disk contents. Boot guards can skip a failed SUSFS load or fall back from failed enforcement; these guards store small boot markers, not backups. Verification never reports a permissive fallback as successful enforcement. Disable SUSFS in Next's Modules screen and cold-boot to remove its running engine. **Do not use `rmmod`** on these pinned kernel modules.
 
 ## Development and licensing
 
 ```sh
 python3 ksu.py profiles
-python3 ksu.py capture --instance 3 --root --output out/captures/current
+python3 ksu.py capture --instance 2 --root --output out/captures/current
 python3 ksu.py updates
 python3 -m unittest discover -s tests -v
 ```
 
-[Guest tests](tests/guest/README.md) exercise actual root behavior, app functionality, enforcement, filesystem observations and concurrency. CI does not replace emulator testing.
+[Guest tests](tests/guest/README.md) exercise root authorization, app functionality, enforcement, filesystem observations and concurrency. CI does not replace emulator testing. Use `--app '/path/MuMuPlayer Pro.app'` and `--adb /path/to/adb` before a subcommand to override tool locations. Builds, disks and local diagnostic captures are ignored by Git.
 
-Use `--app '/path/MuMuPlayer Pro.app'` and `--adb /path/to/adb` before the subcommand to override tool locations. Local experiments, builds, VM disks, receipts and captures are ignored by Git.
-
-Original orchestration and test code is MIT-licensed. Kernel modifications are GPL-2.0-only; upstream components retain their licenses. Full corresponding source archives accompany the release binaries. MuMu's kernel, proprietary driver and VM disks are not redistributed. See [NOTICE](NOTICE.md) and [patch licensing](patches/README.md).
+Original orchestration/test code is MIT-licensed; kernel modifications are GPL-2.0-only. Upstream licenses remain applicable. Corresponding source archives accompany release binaries. MuMu's proprietary kernel, driver and VM disks are not redistributed. See [NOTICE](NOTICE.md) and [patch licensing](patches/README.md).

@@ -1,0 +1,57 @@
+--- a/target
++++ b/target
+@@ -7,28 +7,6 @@
+ 
+ function log_echo(){
+     echo "$@" > /dev/kmsg
+-}
+-
+-function remount_system_rw_if_need() {
+-    if [ "$(getprop nemud.system_writable)" == "1" ]; then
+-        mount -o rw,remount /system
+-        if [ -f "/system/etc/init/magisk.rc" ]; then
+-            # in this case, magisk is already running, #127042, fix for magisk
+-            xbin_su=$(strings /system/xbin/su | grep koush)
+-            if [ "$xbin_su" == "/dev/com.koushikdutta.superuser/.daemon" ]; then
+-                # in this case, mumu's su should remove
+-                rm -rf /system/xbin/su
+-                rm -rf /system/app/SuperUser
+-                mount --bind /system /system
+-                bin_su=$(strings /system/bin/su | grep koush)
+-                if [ "$bin_su" == "/dev/com.koushikdutta.superuser/.daemon" ]; then
+-                    # Prevent accidental deletion of magisk'su
+-                    rm -rf /system/bin/su
+-                fi
+-                umount -l /system
+-            fi
+-        fi
+-    fi
+ }
+ 
+ function init_nativebridge() {
+@@ -180,14 +158,6 @@
+     mv /mnt/shared/private_shared/boot_screenshot.png.bak /mnt/shared/private_shared/boot_screenshot.png
+ }
+ 
+-# mkdir for magisk 
+-function initDataAdb()
+-{
+-    if [ ! -d "/data/adb" ]; then
+-        mkdir /data/adb
+-    fi
+-}
+-
+ function copyAutohighframeModule()
+ {
+     if [ ! -d "/data/shared_libs" ]; then
+@@ -209,10 +179,8 @@
+ case "$1" in
+   sys-user-unlocked)
+     handleUpgradeFromOldHotUpdate
+-    remount_system_rw_if_need
+     #init_nativebridge
+     handleDataDiskUpgrade
+-    initDataAdb
+     copyAutohighframeModule
+     #saveEnableScreenTimeToFile
+     ;;

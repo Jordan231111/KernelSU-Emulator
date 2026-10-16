@@ -20,8 +20,7 @@ Target: MuMuPlayer Pro 1.9.2, Apple Silicon, Android 12, kernel `4.19.195-androi
 | Clean build | Pinned sources + included patches built in a fresh Docker toolchain container |
 | GitHub cross-build | Linux x86_64 runner produced a byte-identical ARM64 kernel module; its native control probe was also executed successfully in MuMu |
 | Automated installer | Completed on a separate fresh instance, including two cold boots and vendor-root shutdown |
-| State-change handling | Installation aborted on a changed device state and automatically restored its system/settings |
-| Explicit recovery | Restored a pre-existing private system disk; a baseline marker survived; KernelSU and its manager were removed; original root/writability settings were restored |
+| State-change handling | Exact target and payload checks reject mismatches; current in-place failures stop and report the selected instance |
 
 The native control probe returned:
 
@@ -42,7 +41,7 @@ The smoke module contained no system replacements and required no metamodule. Fi
 
 ## Host checks
 
-The unit suite exercises ELF metadata parsing, malformed and truncated ELF rejection, archive path traversal rejection, exact guest identity checks, explicit instance selection, bundle integrity gates, and recovery identity/backup checks. Shell scripts pass syntax checks and Python modules compile.
+The unit suite exercises ELF metadata parsing, malformed and truncated ELF rejection, archive path traversal rejection, exact guest identity checks, explicit instance selection, bundle integrity gates, offline partition bounds, vendor cleanup restrictions and update failure handling. Shell scripts pass syntax checks and Python modules compile.
 
 GitHub CI runs host checks on Linux, macOS, and Windows. Those jobs do not imply Windows MuMu support. The manual build workflow cross-compiles the ARM64 module on Linux. Guest runtime testing requires the actual verified MuMu image.
 
@@ -54,12 +53,12 @@ b97e681d79d41cbf0c69bf8a494f4e0dc647f6241005f99ccc3ab8a0fe60dc76
 
 ## Limits of this validation
 
-This establishes functionality on the fingerprinted MuMu build, not ABI compatibility with every 4.19 kernel or long-term stability of arbitrary root modules. The kernel module uses a measured vendor ABI adaptation. Preserve recovery receipts and add new profiles only after repeating the porting workflow.
+This establishes functionality on the fingerprinted MuMu build, not ABI compatibility with every 4.19 kernel or long-term stability of arbitrary root modules. The kernel module uses a measured vendor ABI adaptation. Add new profiles only after repeating the porting workflow.
 
 
 ## Complete enforcing + SUSFS release qualification
 
-The enhanced configuration was installed by `enhance-clone` from the preserved working base, including fingerprinted system-file changes, compiled-policy verification, offline inode labels and normal KernelSU module installation. The final recipe was also exercised through a framework-only clone upgrade.
+The initial v1.0.0 qualification used isolated test instances, including fingerprinted system-file changes, compiled-policy verification, offline inode labels and normal KernelSU module installation. The final recipe was also exercised through a framework-only update. v1.0.1 uses the in-place workflow described below.
 
 | Check | Observed result |
 | --- | --- |
@@ -89,3 +88,13 @@ e21cbf3fd31e89a422025ac8be884ca5623b74b68ebc9925665e212671053736
 The original core kernel-module hash above remains unchanged. The startup scripts and bundle/source manifests changed. See the release checksums for complete artifact identity and [machine-readable observations](validation-v1.0.0.json).
 
 The observed zero leak/miss counts apply to the stated test workload. Hard-link/symlink directory entries, redirect inode metadata, optional APIs and emulator attestation have explicit boundaries in [SELinux/SUSFS details](SELINUX-SUSFS.md). The test does not certify every game, banking app, anti-cheat, Zygisk implementation or third-party module.
+
+## v1.0.1 — startup repair, sole root provider and no backups
+
+The migrated primary instance exposed a real restart problem: nemuinit could not restart after enforcement, the legacy companion receiver failed without vendor su, and a `vold-failed` reboot followed. The repair adds scoped executable/property/socket rules, removes the obsolete receiver from startup, and preserves the normal vendor API through a checked helper. Boot acceptance now observes all nine core services for ten consecutive seconds.
+
+The private disk was examined offline. The fingerprinted vendor su backup helper and serial-console launcher were physically removed, vendor root service declarations and Magisk compatibility startup code were removed, and root aliases/Magisk files were checked absent. The old Magisk framework and modules were uninstalled before Next installation. Standalone user apps were preserved.
+
+The complete configuration passed real app UI/touch/sensors, DNS/HTTPS, muted audio, an SELinux denial canary, authorized and unauthorized root, the native SUSFS suite, and repeated cold boots. `/system` mounted read-only while MuMu's private-disk setting remained Writable. The in-place core update was exercised on this configuration; it preserves the platform helper and waits for the strengthened health check.
+
+Backup/restore and automatic clone functionality, saved original policy files and recovery-receipt requirements have been removed. Disk-edit temporary files are deleted after use. The module binaries are unchanged from v1.0.0; policy, startup, cleanup and host maintenance changed. See [v1.0.1 observations](validation-v1.0.1.json) for measured results. The v1.0.0 record remains historical evidence, not a description of current backup behavior.

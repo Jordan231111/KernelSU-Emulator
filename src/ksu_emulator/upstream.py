@@ -53,7 +53,7 @@ def updates(profile_id: str) -> dict:
             "pinned_manager_tag": profile["ksu_tag"], "latest_manager_tag": release["tag_name"],
             "manager_changed": release["tag_name"] != profile["ksu_tag"],
             "release_url": release["html_url"], "published_at": release.get("published_at"),
-            "next_step": "Use prepare-framework with explicit refs, then preflight, build and qualify a clone. No update was installed."}
+            "next_step": "Use prepare-framework with explicit refs, then preflight, build and qualify a fresh lab. No update was installed."}
     extension = ROOT / "profiles" / profile_id / "susfs.json"
     if extension.is_file():
         spec = json.loads(extension.read_text())
@@ -154,4 +154,4 @@ def prepare_framework(base_id: str, new_id: str, kernel_ref: str, manager_tag: s
         raise
     return {"profile": new_id, "status": "candidate", "kernel_commit": commit, "manager_tag": manager_tag,
             "uapi_version": candidate["build"]["uapi_version"],
-            "next_step": "Review manager identity, run preflight and build, then qualify a cloned instance before promotion"}
+            "next_step": "Review manager identity, run preflight and build, then qualify a fresh labd instance before promotion"}

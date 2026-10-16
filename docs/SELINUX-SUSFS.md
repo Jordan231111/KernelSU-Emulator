@@ -11,7 +11,7 @@ The repair addresses their causes:
 - System files receive their intended SELinux labels. PID 1 runs in the `init` domain, and standard Android services receive explicit service identities.
 - MuMu's virtual driver gets a dedicated `mumu_vaddress_device` type, including the MLS attribute needed by apps with distinct category labels. Its actual clients receive the necessary file operations and **only driver ioctl commands `0x4c15`–`0x4c1a`**, derived from the vendor driver's dispatch code.
 - MuMu's per-app configuration, shared libraries, app logs, properties and private Binder services receive specific types and permissions. The graphics cleanup executable gets its own execution label so it can restart after enforcement begins.
-- Protected vendor library trees are labeled on the stopped clone's ext4 filesystem. The tool verifies every modified extended attribute, runs filesystem checks, checks the rebuilt QCOW2, and swaps it only while that clone remains stopped.
+- Protected vendor library trees are labeled on the stopped instance's ext4 filesystem. The tool verifies every modified extended attribute, runs filesystem checks, checks the rebuilt QCOW2, and swaps it only while that instance remains stopped.
 - KernelSU's early daemon runs through its absolute installed path, which triggers the intended transition into the privileged KernelSU domain. The original relative invocation left helper processes in an unsuitable domain.
 
 There is no blanket `allow appdomain * * *`, and no change making all app domains permissive. The root domain is privileged by design. An ordinary app was tested accessing a world-readable file labeled `system_data_file`: it receives `EACCES` while its UI, touch input, sensors, HTTPS and muted audio playback continue to work. The same app can launch an authorized root child without turning its ordinary process into a globally privileged app.
@@ -28,7 +28,7 @@ The specification pins **both the original vendor policy and the resulting compi
 
 This uses [inforcqb/susfs4ksu-lkm](https://github.com/inforcqb/susfs4ksu-lkm) at pinned legacy commit `0b197bfd3d3402ee108e19c66ed3293d9d14481a`, plus this repository's 4.19 port. It implements the SUSFS control protocol as an independent loadable engine. It is **not the canonical SUSFS patches compiled into a replacement MuMu kernel**, and is not claimed to have identical internals or universal feature parity.
 
-The standard `mumu_susfs` KernelSU module ZIP contains the engine, a small control client, and startup/recovery scripts. It uses the official Next daemon's loader and SUSFS queries. Next's embedded GKI SUSFS autoload is disabled because those binaries do not match MuMu's kernel.
+The standard `mumu_susfs` KernelSU module ZIP contains the engine, a small control client, and startup and failure-detection scripts. It uses the official Next daemon's loader and SUSFS queries. Next's embedded GKI SUSFS autoload is disabled because those binaries do not match MuMu's kernel.
 
 The port adapts old procfs, syscall, page-walk and memory-access APIs; uses the actual 4.19 namespace lock; and defers namespace work out of probe context. A real optional mapped-file test found a wrong `get_user_pages_remote` argument assumption. That was fixed for the old task/mm/start signature and retested, including maps, smaps, pagemap and `/proc/self/mem` observations. Compile-time prototype checks preserve that assumption visibly.
 
@@ -63,12 +63,14 @@ See [the validation record](VALIDATION.md) for release evidence. Version/feature
 - MuMu remains an emulator. Root hiding and SELinux enforcing do not create a certified physical device, a locked trusted boot chain or hardware-backed attestation. See [Google's verdict documentation](https://developer.android.com/google/play/integrity/verdicts).
 - The policy repair is an engineering improvement to this vendor environment, not Android CTS certification or an independent security audit of MuMu.
 
-## Recovery
+## Boot guards and the v1.0.1 startup repair
 
-`enhance-clone` preserves the full source instance. Selecting that source is the simplest recovery and retains its userdata, Manager and modules together.
+The enforcing watchdog records the boot ID before enabling enforcement. Success now requires **ten consecutive seconds with all nine essential services running**: zygote, SurfaceFlinger, vold, netd, nemuinit, nemuinput, nemu_sys_opt, opengl-gc and powerbtnd. The marker runs asynchronously so init can continue starting services. An Android boot-completed property alone is insufficient.
 
-The enforcing watchdog records the boot ID before enabling enforcement. A completed Android boot clears the pending marker. If the boot takes too long it restores the prior mode; an unfinished prior boot causes the next one to remain in recovery mode. `verify-hardening` checks the real kernel enforce flag, current boot marker, fallback property, installed file hashes and critical labels. Recovery mode is never reported as successful enforcement. Next's SELinux-status masking and AVC masking are explicitly disabled.
+The earlier recipe allowed initial startup but omitted execution labels needed when MuMu's core helpers restarted under enforcement. A real guest log showed repeated nemuinit restart denials and a subsequent `vold-failed` reboot. v1.0.1 adds the dedicated core executable type, narrow socket/property/configuration rules and replacement platform startup. App, driver and cold-boot checks passed after the repair.
 
-SUSFS has its own pending-boot guard. Disable **MuMu SUSFS** in Next's Modules screen and cold-boot to remove its running engine. Removal requires a cold boot because safe hot-unload is not supported.
+If startup takes too long, the watchdog restores the prior mode; an unfinished prior boot causes a flagged fallback. `verify-hardening` checks the actual kernel flag, current boot marker, fallback property, installed hashes, labels, init domain and essential services. Next's SELinux-status and AVC masking are disabled. A fallback is a failed verification, never claimed as successful enforcement.
 
-When investigating a failed candidate, keep its logs under `/data/adb/ksu-emulator/` and the host's `out/enhancements/` record. Fix the recipe in a new test clone. Do not repeatedly clear pending markers to force the same failing startup, and do not edit the preserved original into a half-upgraded state.
+SUSFS has a separate pending-boot guard with synchronized marker writes. Disable **MuMu SUSFS** in Next's Modules screen and cold-boot to remove the running engine. Safe hot-unload is not supported.
+
+These guards create no backup. Maintenance keeps small diagnostic records and removes temporary working files; there is no restore command or retained disk/instance copy. Investigate the failed check before retrying instead of repeatedly clearing markers to force the same failing boot.

@@ -1,6 +1,6 @@
 --- a/target
 +++ b/target
-@@ -1230,3 +1230,12 @@
+@@ -1230,3 +1230,15 @@
  
  # dck properties
  ro.gms.dck.eligible_wcc u:object_r:dck_prop:s0 exact int
@@ -13,3 +13,6 @@
 +
 +nemud. u:object_r:mumu_control_prop:s0 prefix string
 +vendor.wlan.driver.version u:object_r:mumu_wifi_info_prop:s0 exact string
++ro.opengles.max u:object_r:graphics_config_prop:s0 exact string
++ro.opengles.aep u:object_r:graphics_config_prop:s0 exact string
++times_zygote_begin u:object_r:mumu_boot_timing_prop:s0 exact string

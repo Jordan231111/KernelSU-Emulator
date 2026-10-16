@@ -9,17 +9,18 @@ from .build import build
 from .bundle import validate_bundle
 from .common import PROFILE_ID, ROOT, Error
 from .elf import module_info
-from .install import install, restore, verify
+from .install import install, verify
 from .mumu import DEFAULT_APP, Adb, MuMu
 from .probe import probe
 from .common import load_profile
-from .maintenance import (capture, clone_lab, compare_capture, create_candidate, patch_preflight,
+from .maintenance import (capture, compare_capture, create_candidate, patch_preflight,
                           read_capture, register_lab)
 from .profiles import list_profiles
 from .upstream import prepare_framework, updates
-from .upgrade import upgrade_clone
+from .upgrade import upgrade
 from .susfs import build_susfs, validate_susfs, install_susfs, verify_susfs
-from .hardening import enhance_clone, verify_hardening
+from .hardening import harden_existing, verify_hardening
+from .vendor import clean_vendor_root, verify_vendor_cleanup
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,9 +35,6 @@ def main(argv: list[str] | None = None) -> int:
         action.add_argument("--instance", type=int, required=True)
     create = commands.add_parser("create-lab", help="Create a fresh, isolated MuMu test instance")
     create.add_argument("--name", default="KernelSU Lab")
-    clone = commands.add_parser("clone-lab", help="Make a separate test copy, preserving the source")
-    clone.add_argument("--instance", type=int, required=True)
-    clone.add_argument("--name", default="KernelSU Upgrade Lab")
     snapshot = commands.add_parser("capture", help="Capture kernel identity and compatibility evidence")
     snapshot.add_argument("--instance", type=int, required=True)
     snapshot.add_argument("--output", type=Path, required=True)
@@ -82,24 +80,27 @@ def main(argv: list[str] | None = None) -> int:
     validation.add_argument("bundle", type=Path)
     elf = commands.add_parser("inspect-module", help="Read ARM64 module metadata")
     elf.add_argument("module", type=Path)
-    deployment = commands.add_parser("install", help="Install into one selected instance, with backup and rollback")
+    deployment = commands.add_parser("install", help="Install into one selected instance, in place")
     deployment.add_argument("--instance", type=int, required=True)
     deployment.add_argument("--bundle", type=Path, default=ROOT / "out" / PROFILE_ID)
-    deployment.add_argument("--keep-vendor-root", action="store_true", help="Keep MuMu's original root enabled")
     deployment.add_argument("--experimental", action="store_true", help="Permit candidate bundles in registered test instances")
-    upgrade = commands.add_parser("upgrade-clone", help="Upgrade a new clone while retaining the original instance")
-    upgrade.add_argument("--instance", type=int, required=True)
-    upgrade.add_argument("--from-bundle", type=Path, required=True)
-    upgrade.add_argument("--bundle", type=Path, required=True)
-    upgrade.add_argument("--name", default="KernelSU Upgraded")
-    upgrade.add_argument("--experimental", action="store_true")
-    enhancement = commands.add_parser("enhance-clone", help="Create an enforcing clone, optionally with the matching SUSFS module")
-    enhancement.add_argument("--instance", type=int, required=True)
-    enhancement.add_argument("--from-bundle", type=Path, required=True)
-    enhancement.add_argument("--bundle", type=Path, required=True, help="New core bundle (same bundle is allowed)")
-    enhancement.add_argument("--susfs-bundle", type=Path)
-    enhancement.add_argument("--name", default="KernelSU Next + SUSFS (Enforcing)")
-    enhancement.add_argument("--experimental", action="store_true")
+    update = commands.add_parser("upgrade", help="Update the selected instance in place")
+    update.add_argument("--instance", type=int, required=True)
+    update.add_argument("--from-bundle", type=Path, required=True)
+    update.add_argument("--bundle", type=Path, required=True)
+    update.add_argument("--experimental", action="store_true")
+    existing = commands.add_parser("harden-existing", help="Apply verified SELinux hardening to the selected instance")
+    existing.add_argument("--instance", type=int, required=True)
+    existing.add_argument("--bundle", type=Path, required=True)
+    existing.add_argument("--susfs-bundle", type=Path)
+    existing.add_argument("--experimental", action="store_true")
+    cleanup = commands.add_parser("clean-vendor-root", help="Remove fingerprinted vendor root helpers in place")
+    cleanup.add_argument("--instance", type=int, required=True)
+    cleanup.add_argument("--profile", default=PROFILE_ID)
+    cleanup.add_argument("--experimental", action="store_true")
+    cleanup_check = commands.add_parser("verify-vendor-cleanup", help="Check vendor root removal and replacement platform startup")
+    cleanup_check.add_argument("--instance", type=int, required=True)
+    cleanup_check.add_argument("--profile", default=PROFILE_ID)
     hardening_check = commands.add_parser("verify-hardening", help="Check actual kernel enforcement and the installed repair recipe")
     hardening_check.add_argument("--instance", type=int, required=True)
     hardening_check.add_argument("--profile", default=PROFILE_ID)
@@ -107,8 +108,6 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--instance", type=int, required=True)
     check.add_argument("--root", action="store_true", help="Also test su; Shell must be authorized in Manager")
     check.add_argument("--profile", default=PROFILE_ID)
-    recovery = commands.add_parser("restore", help="Restore system disk/settings using an installation receipt")
-    recovery.add_argument("receipt", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
@@ -150,8 +149,6 @@ def main(argv: list[str] | None = None) -> int:
                     "vmRootEnable": False,
                 }))
                 result = register_lab(mumu, mumu.info(result["index"]))
-            elif args.command == "clone-lab":
-                result = clone_lab(mumu, args.instance, args.name)
             elif args.command == "start":
                 result = {"instance": args.instance, "serial": mumu.start(args.instance).serial}
             elif args.command == "stop":
@@ -162,8 +159,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "probe":
                 result = probe(mumu.connect(args.instance), root=args.root)
             elif args.command == "install":
-                result = install(mumu, args.instance, args.bundle, keep_vendor_root=args.keep_vendor_root,
-                                 experimental=args.experimental)
+                result = install(mumu, args.instance, args.bundle, experimental=args.experimental)
             elif args.command == "install-susfs":
                 result = install_susfs(mumu, args.instance, args.bundle, args.experimental)
             elif args.command == "verify-susfs":
@@ -171,11 +167,17 @@ def main(argv: list[str] | None = None) -> int:
                 if not result["verified"]:
                     print(json.dumps(result, indent=2))
                     return 1
-            elif args.command == "upgrade-clone":
-                result = upgrade_clone(mumu, args.instance, args.from_bundle, args.bundle, args.name, args.experimental)
-            elif args.command == "enhance-clone":
-                result = enhance_clone(mumu, args.instance, args.from_bundle, args.bundle, args.susfs_bundle,
-                                       args.name, args.experimental)
+            elif args.command == "upgrade":
+                result = upgrade(mumu, args.instance, args.from_bundle, args.bundle, args.experimental)
+            elif args.command == "harden-existing":
+                result = harden_existing(mumu, args.instance, args.bundle, args.susfs_bundle, args.experimental)
+            elif args.command == "clean-vendor-root":
+                result = clean_vendor_root(mumu, args.instance, args.profile, args.experimental)
+            elif args.command == "verify-vendor-cleanup":
+                result = verify_vendor_cleanup(mumu, args.instance, args.profile)
+                if not result["verified"]:
+                    print(json.dumps(result, indent=2))
+                    return 1
             elif args.command == "verify-hardening":
                 result = verify_hardening(mumu, args.instance, args.profile)
                 if not result["verified"]:
@@ -187,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps(result, indent=2))
                     return 1
             else:
-                result = restore(mumu, args.receipt)
+                raise Error("Unknown command")
         print(json.dumps(result, indent=2))
         return 0
     except (Error, OSError, ValueError, KeyError) as exc:

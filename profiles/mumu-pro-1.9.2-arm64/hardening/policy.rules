@@ -1,3 +1,4 @@
+type mumu_core_exec exec_type
 type mumu_opengl_exec exec_type
 type mumu_nemuinit_service service_manager_type
 type mumu_public_config_file file_type
@@ -182,3 +183,17 @@ typeattribute mumu_opengl_exec file_type
 typeattribute mumu_opengl_exec system_file_type
 allow init mumu_opengl_exec file { read open getattr map execute execute_no_trans }
 allow platform_app mumu_shared_mount_dir dir { search read open getattr }
+typeattribute mumu_core_exec file_type
+typeattribute mumu_core_exec system_file_type
+allow init mumu_core_exec file { read open getattr map execute execute_no_trans }
+allow system_server shell unix_stream_socket getopt
+allow system_app mumu_shared_mount_dir file { create read open getattr write append setattr unlink rename }
+allow webview_zygote tombstone_data_file dir search
+allow webview_zygote mumu_app_log_dir dir { create read open getattr write search add_name remove_name setattr }
+allow webview_zygote mumu_app_log_file file { create read open getattr write append setattr unlink lock }
+type_transition webview_zygote mumu_app_log_dir dir mumu_app_log_dir
+type_transition webview_zygote mumu_app_log_dir file mumu_app_log_file
+allow webview_zygote mumu_runtime_config_dir dir { search read open getattr write add_name remove_name create setattr }
+allow webview_zygote mumu_runtime_config_file file { create read open getattr write setattr unlink rename map mounton }
+type_transition webview_zygote mumu_runtime_config_dir dir mumu_runtime_config_dir
+type_transition webview_zygote mumu_runtime_config_dir file mumu_runtime_config_file

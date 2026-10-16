@@ -115,7 +115,7 @@ def compare_capture(report: dict, profile: dict) -> dict:
     return {"profile": profile["id"], "classification": classification, "changes": changes,
             "reuse_build_candidate": not missing_reference and not kernel_changed and not driver_changed,
             "required_next_step": "Measure ABI and audit symbols before building" if kernel_changed or driver_changed else
-            "Qualify a clone before promoting a new app version; matching kernel files do not prove boot compatibility"}
+            "Qualify a fresh lab before promoting a new app version; matching kernel files do not prove boot compatibility"}
 
 
 def create_candidate(base_id: str, capture_path: Path, new_id: str) -> dict:
@@ -167,13 +167,13 @@ def copy_extensions(base_id: str, new_id: str) -> None:
             return new_prefix + value[len(old_prefix):]
         return value
 
-    for name in ("hardening", "kernel-symbols.txt"):
+    for name in ("hardening", "vendor-cleanup", "kernel-symbols.txt"):
         path = source / name
         if path.is_dir():
             shutil.copytree(path, destination / name)
         elif path.is_file():
             shutil.copyfile(path, destination / name)
-    for name in ("hardening", "susfs"):
+    for name in ("hardening", "susfs", "vendor-cleanup"):
         path = source / (name + ".json")
         if not path.is_file():
             continue
@@ -213,25 +213,8 @@ def register_lab(mumu: MuMu, device: dict, source_index: int | None = None) -> d
 def require_lab(mumu: MuMu, index: int) -> dict:
     path = ROOT / "out/labs" / f"{index}.json"
     if not path.is_file():
-        raise Error("Candidate testing requires an instance made by create-lab or clone-lab")
+        raise Error("Candidate testing requires an instance made by create-lab")
     record = json.loads(path.read_text())
     if record.get("index") != index or record.get("bundle_path") != str(Path(mumu.info(index)["bundle_path"]).resolve()):
         raise Error("Laboratory instance identity changed")
     return record
-
-
-def clone_lab(mumu: MuMu, index: int, name: str) -> dict:
-    before = mumu.info(index)
-    if before["state"] not in {"running", "stopped"}:
-        raise Error("Source instance is busy")
-    mumu.stop(index)
-    try:
-        result = mumu.call("clone", str(index))
-        # Keep the clone discoverable even if a later rename fails.
-        register_lab(mumu, result, index)
-        mumu.configure(result["index"], vmName=name)
-        result["name"] = name
-        return result
-    finally:
-        if before["state"] == "running":
-            mumu.start(index)
