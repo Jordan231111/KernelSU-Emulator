@@ -128,5 +128,25 @@
     "new_namespaces": 30,
     "path_counters": "precopy_hidden=30076 opath_denied=24004 open_missed=0 fill_missed=0/0/0 perm_denied=24004 perm_missed=0",
     "passed": true
+  },
+  "stability_observation": {
+    "duration_seconds": 364,
+    "sample_count": 13,
+    "same_boot_id": true,
+    "same_system_server_nemuinit_surfaceflinger_pids": true,
+    "all_samples_enforcing": true,
+    "final_uptime_seconds": 545.52,
+    "passed": true
+  },
+  "github_checks": "https://github.com/Jordan231111/KernelSU-Emulator/actions/runs/38834959965",
+  "github_cross_build": "https://github.com/Jordan231111/KernelSU-Emulator/actions/runs/38835112029",
+  "cross_build_verification": {
+    "run": "https://github.com/Jordan231111/KernelSU-Emulator/actions/runs/38835112029",
+    "native_modules_byte_identical": true,
+    "hashes": {
+      "core/kernelsu.ko": "b97e681d79d41cbf0c69bf8a494f4e0dc647f6241005f99ccc3ab8a0fe60dc76",
+      "susfs/susfs_guard_lkm.ko": "e21cbf3fd31e89a422025ac8be884ca5623b74b68ebc9925665e212671053736",
+      "susfs/module/susfs_guard_lkm.ko": "e21cbf3fd31e89a422025ac8be884ca5623b74b68ebc9925665e212671053736"
+    }
   }
 }
