@@ -23,19 +23,6 @@ Requirements:
 
 Open Terminal in the extracted folder. Run `python3 ksu.py list` and replace `0` below with your intended instance index. Close games before commands that stop or restart an instance.
 
-## Update an existing installation
-
-Apply the current SELinux and service repairs, including the Recent Apps toolbar fix:
-
-```sh
-python3 ksu.py update-policy --instance 0
-python3 ksu.py stop --instance 0
-python3 ksu.py start --instance 0
-python3 ksu.py verify-hardening --instance 0
-```
-
-This preserves KernelSU, SUSFS, apps, and launcher settings. It requires authorized Shell root and a recognized policy installation. See [Updating](docs/UPDATING.md) for core or SUSFS updates.
-
 ## Fresh installation
 
 Uninstall any other root framework first. For Magisk, use its **Complete Uninstall**.
@@ -87,7 +74,7 @@ MuMu's Writable setting selects the private disk containing the installation. An
 - SUSFS-compatible LKM, protocol **v2.3.0**, with default path, module-name, and mount filtering.
 - SELinux labels and permissions for MuMu's graphics, media, input, toolbar, and hardware services.
 - Fingerprint-checked optimizer repair and vendor-root removal.
-- Installer, policy migration, framework update, and verification commands.
+- Installer, vendor-root cleanup, and verification commands.
 
 Zygisk, Xposed, and integrity modules are separate installations. The SUSFS port has limited coverage and cannot guarantee root hiding or hardware-backed device attestation.
 
@@ -95,7 +82,6 @@ Zygisk, Xposed, and integrity modules are separate installations. The SUSFS port
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [SELinux and SUSFS](docs/SELINUX-SUSFS.md)
-- [Updating](docs/UPDATING.md)
 - [Service permissions and troubleshooting](docs/SERVICE-POLICY.md)
 - [Building](docs/BUILDING.md)
 - [Guest tests](tests/guest/README.md)

@@ -8,9 +8,15 @@ from unittest.mock import patch
 from src.ksu_emulator.common import load_profile
 from src.ksu_emulator.hardening import recipe_hash, specification
 from src.ksu_emulator.maintenance import copy_extensions
+from src.ksu_emulator.profiles import repository_file
 
 
 class HardeningContractTests(unittest.TestCase):
+    def test_boot_marker_checks_every_required_service(self):
+        _, spec = specification()
+        marker = repository_file(spec["boot_files"]["mark-boot.sh"]).read_text()
+        self.assertIn("for service in " + " ".join(spec["required_services"]) + "; do", marker)
+
     def test_promotion_does_not_change_installed_recipe_identity(self):
         _, spec = specification()
         candidate = copy.deepcopy(spec)

@@ -1,5 +1,0 @@
-# MuMu's toolbar runs /system/bin/input (a shell wrapper around cmd input)
-# from its native bridge in init. Label only input and cmd as shell_exec so
-# the existing init shell-execution permission applies; do not grant init
-# execute_no_trans across all system_file executables.
-allow init input_service service_manager find

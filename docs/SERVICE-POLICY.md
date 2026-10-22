@@ -37,8 +37,8 @@ For central bridge changes, use a full MuMu stop/start. The Android framework ca
 
 Keep SELinux enforcing while testing. The hiding switch does not supply missing permissions. Ordinary apps being denied private resources is expected.
 
-## Policy maintenance
+## Installation checks
 
-`update-policy` accepts only fingerprinted previous installations. It checks input files, patch hashes, and compiler output before publishing the policy, label table, boot files, and any vendor helper repair. It preserves the saved hiding preference, removes temporary staging files, and restores `/system` to read-only.
+`harden-existing` checks the core installation and original vendor files before applying the current policy, labels, and helper repairs. It preserves the saved hiding preference and removes temporary staging files. A different existing hardening installation is rejected.
 
-Equivalent compiled policies can have different serializations. Each accepted hash must be inspected independently, including type attributes, ioctl permissions, and ordinary-app rules. See [guest tests](../tests/guest/README.md) and [Updating](UPDATING.md).
+Accepted policy hashes must be inspected independently, including type attributes, ioctl permissions, and ordinary-app rules. See [guest tests](../tests/guest/README.md), [Building](BUILDING.md), and [Porting](PORTING.md).

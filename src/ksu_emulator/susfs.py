@@ -184,7 +184,7 @@ def verify_susfs(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> dict:
     return {"instance": index, "version": version, "variant": variant, "declared_features": features,
             "boot_configuration_ready": ready, "path_counters": counters,
             "verified": ready and version == spec["susfs_version"] and variant == "NON-GKI",
-            "note": "Engine/API/startup verification; feature behavior is covered separately in the release validation record"}
+            "note": "Engine/API/startup verification; behavioral checks are described in tests/guest/README.md"}
 
 
 def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = False) -> dict:

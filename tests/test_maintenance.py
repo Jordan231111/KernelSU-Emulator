@@ -1,4 +1,3 @@
-import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +7,6 @@ from src.ksu_emulator.common import Error, load_profile, save_json, sha256
 from src.ksu_emulator.install import install, verify
 from src.ksu_emulator.maintenance import compare_capture, read_capture, require_lab
 from src.ksu_emulator.profiles import build_settings, validate_profile
-from src.ksu_emulator.upgrade import upgrade
 from src.ksu_emulator.upstream import select_manager
 
 
@@ -66,14 +64,6 @@ class CompatibilityTests(unittest.TestCase):
         mumu = Mock()
         with patch("src.ksu_emulator.install.validate_bundle", return_value=manifest), self.assertRaises(Error):
             install(mumu, 2, Path("unused"))
-        self.assertFalse(mumu.mock_calls)
-
-    def test_fork_switch_is_rejected_before_mutation(self):
-        other = copy.deepcopy(self.profile)
-        other["ksu_package"] = "another.manager"
-        mumu = Mock()
-        with patch("src.ksu_emulator.upgrade.validate_bundle", side_effect=[{"profile": self.profile}, {"profile": other}]), self.assertRaises(Error):
-            upgrade(mumu, 2, Path("old"), Path("new"))
         self.assertFalse(mumu.mock_calls)
 
     def test_instance_index_reuse_does_not_reuse_lab_permission(self):

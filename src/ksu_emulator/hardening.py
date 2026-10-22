@@ -112,10 +112,7 @@ def apply_text_patch(before: bytes, item: dict, work: Path) -> bytes:
     return after
 
 
-def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
-                     _expected_recipe: str | None = None, _boot_hashes: dict | None = None,
-                     _policy_hash: str | None = None, _binary_hashes: dict | None = None,
-                     _file_hashes: dict | None = None, _labels: dict | None = None) -> dict:
+def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> dict:
     profile, spec = specification(profile_id)
     mumu.validate_app(profile)
     adb = mumu.connect(index)
@@ -135,26 +132,21 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
     # legitimate user choices, and app-facing status may be sanitized.
     # Keep a cryptographic record of which reviewed policy/patch recipe is installed.
     state = json.loads(adb.su("cat /system/etc/ksu-mumu-policy/state.json"))
-    # Internal overrides validate an explicitly reviewed previous boot recipe
-    # during migration; the CLI always checks the current recipe.
-    result["recipe_matches"] = state.get("recipe_sha256") == (_expected_recipe or recipe_hash(spec))
-    expected = {item["path"]: (_file_hashes or {}).get(item["path"], item["after_sha256"])
-                for item in spec["files"]}
-    expected.update({item["path"]: (_binary_hashes or {}).get(item["path"], item["after_sha256"])
+    result["recipe_matches"] = state.get("recipe_sha256") == recipe_hash(spec)
+    expected = {item["path"]: item["after_sha256"] for item in spec["files"]}
+    expected.update({item["path"]: item["after_sha256"]
                      for item in spec.get("binary_repairs", [])})
-    expected[spec["policy_path"]] = _policy_hash or spec["compiled_policy_sha256"]
+    expected[spec["policy_path"]] = spec["compiled_policy_sha256"]
     for name, source in spec["boot_files"].items():
         remote = "/system/etc/init/" + name if name.endswith(".rc") else "/system/etc/ksu-mumu-policy/" + name
-        expected[remote] = (_boot_hashes or {}).get(name, sha256(repository_file(source)))
+        expected[remote] = sha256(repository_file(source))
     sums = adb.su("sha256sum " + " ".join(shlex.quote(path) for path in expected), check=False)
     actual = {parts[1]: parts[0] for line in sums.splitlines() if len(parts := line.split()) == 2}
-    accepted_policy = {_policy_hash} if _policy_hash else {
-        spec["compiled_policy_sha256"], *spec.get("equivalent_policy_sha256", [])}
+    accepted_policy = {spec["compiled_policy_sha256"], *spec.get("equivalent_policy_sha256", [])}
     result["installed_files_match"] = all(
         actual.get(path) in accepted_policy if path == spec["policy_path"] else actual.get(path) == digest
         for path, digest in expected.items())
-    labels = {**spec["explicit_system_labels"], **(_labels or {}),
-              "/dev/vaddress": "u:object_r:mumu_vaddress_device:s0"}
+    labels = {**spec["explicit_system_labels"], "/dev/vaddress": "u:object_r:mumu_vaddress_device:s0"}
     observed = adb.su("ls -Zd " + " ".join(shlex.quote(path) for path in labels), check=False)
     actual_labels = {parts[-1]: parts[0] for line in observed.splitlines() if len(parts := line.split()) >= 2}
     result["critical_labels_match"] = all(actual_labels.get(path) == context for path, context in labels.items())
@@ -201,7 +193,7 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
     if adb.su("if [ -e /system/etc/ksu-mumu-policy/state.json ]; then echo installed; fi"):
         result = wait_hardening(mumu, target, profile["id"])
         if not result["verified"]:
-            raise Error("An existing hardening recipe differs or is unhealthy; an explicitly reviewed policy migration is required")
+            raise Error("The existing hardening recipe differs or is unhealthy; this installer requires a clean base")
         susfs = install_susfs(mumu, target, susfs_bundle, experimental) if susfs_bundle else None
         return {"instance": target, "already_hardened": True, "hardening": result, "susfs": susfs}
     ext4 = Ext4Tools()  # Check prerequisites before stopping an instance.
@@ -225,7 +217,7 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
             work = Path(temp)
             adb = mumu.connect(target)
             if adb.su("if [ -e /system/etc/ksu-mumu-policy ]; then echo conflict; fi"):
-                raise Error("This instance already has hardening changes. Use upgrade for a framework-only update; policy migrations require a newly reviewed recipe")
+                raise Error("This instance already contains a hardening installation")
             boot = adb.su("cat /proc/sys/kernel/random/boot_id")
             replacements = {}
             for i, item in enumerate(spec["files"]):

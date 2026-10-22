@@ -126,7 +126,7 @@ def create_candidate(base_id: str, capture_path: Path, new_id: str) -> dict:
     comparison = compare_capture(report, base)
     # New kernel ABIs need deliberate source/config/patch selection, not guessed padding.
     if not comparison["reuse_build_candidate"]:
-        raise Error("Kernel or vendor ABI changed. Use the kernel-port workflow in docs/UPDATING.md; automatic reuse is refused")
+        raise Error("Kernel or vendor ABI changed. Follow docs/PORTING.md; automatic reuse is refused")
     candidate = copy.deepcopy(base)
     candidate.update({"schema": 2, "id": new_id, "build": copy.deepcopy(build_settings(base)),
                       "validation": {"status": "candidate", "based_on": base_id, "reason": comparison["classification"]}})

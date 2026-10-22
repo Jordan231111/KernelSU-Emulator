@@ -63,7 +63,7 @@ def updates(profile_id: str) -> dict:
         result["susfs"] = {"repository": repository, "source_ref": source_ref,
                            "pinned_commit": spec["source_commit"], "upstream_commit": head["sha"],
                            "changed": head["sha"] != spec["source_commit"],
-                           "next_step": "Follow docs/UPDATING.md section E; no GKI release binary is installed automatically"}
+                           "next_step": "Follow docs/PORTING.md and build the selected SUSFS source for MuMu"}
     return result
 
 

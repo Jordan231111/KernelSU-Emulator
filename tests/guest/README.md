@@ -88,7 +88,7 @@ For independent compiled-policy inspection on Linux with `python3-setools`:
 python3 tests/policy_audit.py OLD_POLICY NEW_POLICY
 ```
 
-The audit rejects changed permissive domains, type attributes or the covered ordinary-app/isolated-process rules, and prints the service-rule differences. Fresh-install and migration outputs must be compared separately, even when their binary hashes differ. Never publish proprietary MuMu policy binaries with the report.
+The audit rejects changed permissive domains, type attributes or the covered ordinary-app/isolated-process rules, and prints the service-rule differences. Inspect each accepted policy serialization separately. Never publish proprietary MuMu policy binaries with the report.
 
 ## Recent Apps toolbar
 
