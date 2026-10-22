@@ -1,6 +1,6 @@
 --- a/target
 +++ b/target
-@@ -706,3 +706,29 @@
+@@ -706,3 +706,31 @@
  /system/etc/selinux/plat_and_mapping_sepolicy\.cil\.sha256 u:object_r:sepolicy_file:s0
  /system/bin/android\.frameworks\.automotive\.display@1\.0-service u:object_r:automotive_display_service_exec:s0
  /odm/etc/selinux/precompiled_sepolicy\.plat_and_mapping\.sha256 u:object_r:sepolicy_file:s0
@@ -30,3 +30,5 @@
 +/system/bin/nemu_sys_opt -- u:object_r:mumu_core_exec:s0
 +/system/bin/powerbtnd -- u:object_r:mumu_core_exec:s0
 +/system/bin/logwrapper -- u:object_r:mumu_core_exec:s0
++/system/bin/input -- u:object_r:shell_exec:s0
++/system/bin/cmd -- u:object_r:shell_exec:s0

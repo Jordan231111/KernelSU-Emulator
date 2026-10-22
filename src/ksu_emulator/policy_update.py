@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .build import download
 from .common import Error, PROFILE_ID, sha256
-from .hardening import recipe_hash, specification, verify_hardening, wait_hardening
+from .hardening import apply_text_patch, recipe_hash, specification, verify_hardening, wait_hardening
 from .mumu import MuMu
 from .profiles import HEX256, matches, repository_file
 from .service_repair import repair_binary
@@ -31,6 +31,9 @@ def migration_for(profile_id: str, installed_recipe: str, spec: dict) -> dict:
         for key in ("recipe_sha256", "policy_sha256", "rules_sha256"):
             if not matches(HEX256, entry.get(key)):
                 raise Error("Policy migrations require exact recipe, policy and rule hashes")
+        equivalent = entry.get("equivalent_policy_sha256", [])
+        if not isinstance(equivalent, list) or any(not matches(HEX256, value) for value in equivalent):
+            raise Error("Previous policy serializations require reviewed hashes")
         if entry["recipe_sha256"] in seen:
             raise Error("Duplicate policy migration recipe")
         seen.add(entry["recipe_sha256"])
@@ -42,6 +45,19 @@ def migration_for(profile_id: str, installed_recipe: str, spec: dict) -> dict:
         if (not isinstance(binaries, dict) or not set(binaries) <= {i["path"] for i in spec.get("binary_repairs", [])}
                 or any(not matches(HEX256, value) for value in binaries.values())):
             raise Error("Migration can only replace fingerprinted vendor helpers")
+        repairs = entry.get("file_repairs", {})
+        if not isinstance(repairs, dict) or not set(repairs) <= {i["path"] for i in spec["files"]}:
+            raise Error("Migration can only patch known system files")
+        for repair in repairs.values():
+            if not isinstance(repair, dict) or any(not matches(HEX256, repair.get(key))
+                                                  for key in ("before_sha256", "patch_sha256")):
+                raise Error("System file migrations require exact input and patch hashes")
+            if sha256(repository_file(repair.get("patch"))) != repair["patch_sha256"]:
+                raise Error("System file migration patch differs from its reviewed hash")
+        labels = entry.get("previous_labels", {})
+        if (not isinstance(labels, dict) or not set(labels) <= set(spec["explicit_system_labels"])
+                or any(not matches(r"u:object_r:[A-Za-z0-9_]+:s0", value) for value in labels.values())):
+            raise Error("Migration can only relabel known system paths")
         rules = repository_file(entry.get("rules"))
         if sha256(rules) != entry["rules_sha256"]:
             raise Error("Policy migration rules differ from their reviewed hash")
@@ -77,10 +93,17 @@ def update_policy(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *, exper
             raise Error("Current policy files, labels or services failed verification")
         return {"changed": False, "verification": checked}
     migration = migration_for(profile_id, previous, spec)
+    policy_sum = adb.su("sha256sum " + spec["policy_path"]).split()
+    policy_hash = policy_sum[0] if policy_sum else ""
+    if policy_hash not in {migration["policy_sha256"], *migration.get("equivalent_policy_sha256", [])}:
+        raise Error("Previous policy checksum has no reviewed migration")
     checked = verify_hardening(mumu, index, profile_id, _expected_recipe=previous,
                                _boot_hashes=migration.get("boot_sha256", {}),
-                               _policy_hash=migration["policy_sha256"],
-                               _binary_hashes=migration.get("binary_sha256", {}))
+                               _policy_hash=policy_hash,
+                               _binary_hashes=migration.get("binary_sha256", {}),
+                               _file_hashes={path: repair["before_sha256"]
+                                             for path, repair in migration.get("file_repairs", {}).items()},
+                               _labels=migration.get("previous_labels", {}))
     if not checked["verified"]:
         raise Error("Previous policy installation failed verification; nothing was written")
     boot = checked["boot_id"]
@@ -99,7 +122,7 @@ def update_policy(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *, exper
             (work / "policy-tool").write_bytes(binary)
             policy_path = spec["policy_path"]
             policy = adb.bytes("su -c " + shlex.quote("cat " + policy_path))
-            if hashlib.sha256(policy).hexdigest() != migration["policy_sha256"]:
+            if hashlib.sha256(policy).hexdigest() != policy_hash:
                 raise Error("Policy changed after preflight")
             # Compiler input only; deleted together with all staging files.
             (work / "input-policy").write_bytes(policy)
@@ -117,6 +140,19 @@ def update_policy(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *, exper
             if compiled_hash not in {spec["compiled_policy_sha256"], *spec.get("equivalent_policy_sha256", [])}:
                 raise Error("Compiled policy differs from the independently inspected outputs: " + compiled_hash)
             files = [("compiled-policy", policy_path, "0644", compiled_hash)]
+            for i, item in enumerate(spec["files"]):
+                repair = migration.get("file_repairs", {}).get(item["path"])
+                if repair is None:
+                    continue
+                before = adb.bytes("su -c " + shlex.quote("cat " + item["path"]))
+                data = apply_text_patch(before, {**item, "before_sha256": repair["before_sha256"],
+                                                "patch": repair["patch"]}, work)
+                local = work / ("system-file-" + str(i))
+                local.write_bytes(data)
+                adb.push(local, stage + "/" + local.name)
+                if adb.su("sha256sum " + stage + "/" + local.name).split()[0] != item["after_sha256"]:
+                    raise Error("Staged system file checksum mismatch")
+                files.append((local.name, item["path"], "0644", item["after_sha256"]))
             restart_services = []
             for i, item in enumerate(spec.get("binary_repairs", [])):
                 if item["path"] not in migration.get("binary_sha256", {}):
@@ -141,6 +177,8 @@ def update_policy(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *, exper
                 files.append((name, remote, "0644" if name.endswith(".rc") else "0755", sha256(local)))
             state["recipe_sha256"] = current
             state.setdefault("installed", {})[policy_path] = compiled_hash
+            state["installed"].update({item["path"]: item["after_sha256"] for item in spec["files"]
+                                       if item["path"] in migration.get("file_repairs", {})})
             state["installed"].update({item["path"]: item["after_sha256"] for item in spec.get("binary_repairs", [])})
             local = work / "state.json"
             local.write_text(json.dumps(state, indent=2) + "\n")
@@ -162,6 +200,8 @@ def update_policy(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *, exper
                 adb.su(f"set -e; mv {path} {remote}; restorecon {remote}")
                 if remote in spec["explicit_system_labels"]:
                     adb.su("chcon " + shlex.quote(spec["explicit_system_labels"][remote]) + " " + remote)
+            for path in migration.get("previous_labels", {}):
+                adb.su("chcon " + shlex.quote(spec["explicit_system_labels"][path]) + " " + shlex.quote(path))
             adb.su("sync")
             # A replaced executable can remain an open, unlinked inode until
             # its service exits. Restart the repaired service before remounting

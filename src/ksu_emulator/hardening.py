@@ -114,7 +114,8 @@ def apply_text_patch(before: bytes, item: dict, work: Path) -> bytes:
 
 def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
                      _expected_recipe: str | None = None, _boot_hashes: dict | None = None,
-                     _policy_hash: str | None = None, _binary_hashes: dict | None = None) -> dict:
+                     _policy_hash: str | None = None, _binary_hashes: dict | None = None,
+                     _file_hashes: dict | None = None, _labels: dict | None = None) -> dict:
     profile, spec = specification(profile_id)
     mumu.validate_app(profile)
     adb = mumu.connect(index)
@@ -137,7 +138,8 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
     # Internal overrides validate an explicitly reviewed previous boot recipe
     # during migration; the CLI always checks the current recipe.
     result["recipe_matches"] = state.get("recipe_sha256") == (_expected_recipe or recipe_hash(spec))
-    expected = {item["path"]: item["after_sha256"] for item in spec["files"]}
+    expected = {item["path"]: (_file_hashes or {}).get(item["path"], item["after_sha256"])
+                for item in spec["files"]}
     expected.update({item["path"]: (_binary_hashes or {}).get(item["path"], item["after_sha256"])
                      for item in spec.get("binary_repairs", [])})
     expected[spec["policy_path"]] = _policy_hash or spec["compiled_policy_sha256"]
@@ -151,7 +153,8 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID, *,
     result["installed_files_match"] = all(
         actual.get(path) in accepted_policy if path == spec["policy_path"] else actual.get(path) == digest
         for path, digest in expected.items())
-    labels = {**spec["explicit_system_labels"], "/dev/vaddress": "u:object_r:mumu_vaddress_device:s0"}
+    labels = {**spec["explicit_system_labels"], **(_labels or {}),
+              "/dev/vaddress": "u:object_r:mumu_vaddress_device:s0"}
     observed = adb.su("ls -Zd " + " ".join(shlex.quote(path) for path in labels), check=False)
     actual_labels = {parts[-1]: parts[0] for line in observed.splitlines() if len(parts := line.split()) >= 2}
     result["critical_labels_match"] = all(actual_labels.get(path) == context for path, context in labels.items())

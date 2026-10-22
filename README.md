@@ -21,9 +21,11 @@ Optional download verification, before extracting:
 shasum -a 256 -c SHA256SUMS-v1.0.4.txt
 ```
 
-## Repair an existing v1.0.1 or v1.0.2 installation
+## Repair an existing installation
 
-Use the new release's `ksu.py`. This applies the SELinux and vendor-service repairs without reinstalling KernelSU, SUSFS or your apps:
+This source checkout also includes an unreleased repair for the **Recent Apps** toolbar button on v1.0.3/v1.0.4 installations. Run the commands below using this checkout's `ksu.py` to apply it. The repair keeps SELinux enforcing and preserves apps and launcher settings.
+
+For v1.0.1/v1.0.2, the latest release also supplies the earlier SELinux and vendor-service repairs. These commands apply the repairs available in the copy of `ksu.py` you use, without reinstalling KernelSU, SUSFS or your apps:
 
 ```sh
 python3 ksu.py list

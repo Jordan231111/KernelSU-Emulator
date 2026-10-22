@@ -1,0 +1,8 @@
+--- a/target
++++ b/target
+@@ -732,3 +732,5 @@
+ /system/bin/nemu_sys_opt -- u:object_r:mumu_core_exec:s0
+ /system/bin/powerbtnd -- u:object_r:mumu_core_exec:s0
+ /system/bin/logwrapper -- u:object_r:mumu_core_exec:s0
++/system/bin/input -- u:object_r:shell_exec:s0
++/system/bin/cmd -- u:object_r:shell_exec:s0

@@ -211,7 +211,7 @@
     {
       "path": "/system/etc/selinux/plat_file_contexts",
       "before_sha256": "4089d7000ae2b69f74ed7de4409c0a4aa075cd81de1572f2a0cd82651735dabe",
-      "after_sha256": "532111d30fc97f6e297f06fe78e755fa3a36de5f4e6cc855a734759b43ed03be",
+      "after_sha256": "7941d97a81c0c0dd413ec5aa9909fdf7a6230a6b477d731feec16dc1b293b310",
       "patch": "profiles/mumu-pro-1.9.2-arm64/hardening/change-34.patch"
     },
     {
@@ -351,9 +351,11 @@
     "/system/bin/nemuinput": "u:object_r:mumu_core_exec:s0",
     "/system/bin/nemu_sys_opt": "u:object_r:mumu_core_exec:s0",
     "/system/bin/powerbtnd": "u:object_r:mumu_core_exec:s0",
-    "/system/bin/logwrapper": "u:object_r:mumu_core_exec:s0"
+    "/system/bin/logwrapper": "u:object_r:mumu_core_exec:s0",
+    "/system/bin/input": "u:object_r:shell_exec:s0",
+    "/system/bin/cmd": "u:object_r:shell_exec:s0"
   },
-  "compiled_policy_sha256": "1b9751b22d47708ce4ee0753169996fa7416b66561b9a8e2716127709e79c1e7",
+  "compiled_policy_sha256": "e9a67efa6b65d3aa41b5d6be58e5977f647979cb04f8345cf7b75bfc8bdbd8fe",
   "required_services": [
     "zygote",
     "surfaceflinger",
@@ -375,7 +377,7 @@
     "vendor.sensors-hal-2-1-multihal"
   ],
   "equivalent_policy_sha256": [
-    "be0cbe355c08e0de3a28104bc0004fe5276cd965ee8810b145a5819b23240115"
+    "e514eb790c01eb8993b28c3d2894fda3649e4df6d28a7aa04c7ee80e50d519ff"
   ],
   "binary_repairs": [
     {

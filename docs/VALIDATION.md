@@ -1,5 +1,15 @@
 # Validation record
 
+## Unreleased — recent-apps toolbar, 2026-10-21
+
+- Reproduced the native toolbar failure on instance 0: `init` was denied execution of `/system/bin/input`; after correcting the command labels, service discovery was denied for `input_service`. ADB's equivalent key event opened Overview successfully.
+- Labeling only `input` and `cmd` as `shell_exec`, plus granting `init` discovery of `input_service`, restored the native toolbar under real SELinux enforcement. The file-context table and explicit label checks retain this across boot.
+- Compiled the full repair from the pinned original vendor policy and exercised migrations from the v1.0.1/v1.0.2 input and both known v1.0.3/v1.0.4 serializations. SETools confirmed equivalent outputs, no permissive-domain or type-attribute changes, unchanged ordinary-app policy rules, and exactly one new rule: `allow init input_service:service_manager find`.
+- The checked updater applied the policy and file-context migration in place. One subsequent full MuMu stop/start passed core/root, hardening, SUSFS, and vendor-cleanup checks. All 18 required services were running; `/system` was read-only, real enforcement was enabled, and there was no fallback.
+- After that boot, the actual MuMu toolbar opened Overview from Home and Android Settings. Clear All removed the task cards, and reopening Overview showed “No recent items.” ADB input, package commands, Settings launch, pinned Manager/daemon hashes, and core startup/payload checks passed.
+- 50 host tests passed, including migration rejection of unknown policy hashes, unreviewed file paths/patches, and invalid labels. The 8 policy-update tests passed again after the final input-validation adjustment.
+- An initial diagnostic boot stalled in MuMu's graphics/input driver and reached the boot guard's timeout. A retry and the post-repair cold boot completed. The navigation repair does not establish a cause or fix for that separate startup stall.
+
 ## v1.0.4 — startup-log retention, 2026-10-16
 
 Only the core startup shell script, init actions, and their checksums changed. KernelSU/SUSFS binaries, the enforcing policy, and the MuMu optimizer repair are unchanged from v1.0.3.
