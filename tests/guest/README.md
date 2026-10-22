@@ -65,7 +65,7 @@ The real APK separately checks UI, touch, sensors, networking, audio, denied roo
 
 ## Video decoding and native input (required for policy changes)
 
-The 1.0.2 checks did not cover surface-backed video decoding or MuMu's native input channel. Include these checks in every future policy qualification.
+Test surface-backed video decoding and MuMu's native input channel after policy changes.
 
 With a JDK, Android SDK and `ffmpeg` installed:
 
@@ -78,7 +78,7 @@ python3 tests/guest/qualify_media.py --instance 0 --codec c2.android.vp9.decoder
 
 Substitute the intended instance index. The harness generates its own two-second clip, uses Android's real codec service, imports graphic buffers, delivers frames to a SurfaceTexture and checks 60 frames plus end-of-stream. The client is UID 2000; the decoding service retains its real `mediaswcodec` identity. This is a media-service regression test, not a replacement for an ordinary-app isolation test. All generated classes, video clips and guest payloads are removed automatically.
 
-Run the real APK probe separately. Click its text field in the **Mac MuMu window**, type `ksutest`, then click the report area. Confirm `nativeKeyboardText` and `touches` in `files/report.json`. Do not use `adb shell input` for this check: that bypasses the native input route that failed. The probe checks forbidden file access once per launch to avoid flooding the audit buffer; relaunch it for a fresh isolation check.
+Run the real APK probe separately. Click its text field in the **Mac MuMu window**, type `ksutest`, then click the report area. Confirm `nativeKeyboardText` and `touches` in `files/report.json`. Do not use `adb shell input` for this check: that bypasses the native input route. The probe checks forbidden file access once per launch to avoid flooding the audit buffer; relaunch it for a fresh isolation check.
 
 Repeat the media and native-input checks after a cold boot and after restarting MuMu's native input/graphics helpers under enforcement. Check Binder service registration as well as process state. Do not hot-restart `nemuinit` as a normal health test: the vendor framework caches that bridge connection; use a full MuMu cold boot. Watch for a changed boot ID, service restarts and host API timeouts; an initial `running` value is insufficient. Close user apps before lifecycle testing.
 
@@ -89,3 +89,11 @@ python3 tests/policy_audit.py OLD_POLICY NEW_POLICY
 ```
 
 The audit rejects changed permissive domains, type attributes or the covered ordinary-app/isolated-process rules, and prints the service-rule differences. Fresh-install and migration outputs must be compared separately, even when their binary hashes differ. Never publish proprietary MuMu policy binaries with the report.
+
+## Recent Apps toolbar
+
+After a cold boot with SELinux enforcing, click MuMu's **Recent Apps** toolbar button from Home and from Android Settings. Confirm task cards appear. Use **Clear All**, reopen Recent Apps, and confirm it is empty. Test Back, Home, and ADB input/package commands as well.
+
+Use the native MuMu toolbar for this check. ADB's `KEYCODE_APP_SWITCH` runs in a different domain and does not exercise the bridge's command execution or service lookup.
+
+Remove diagnostic APKs, guest probe files, temporary mounts, and generated `out/guest-tests/` output after testing.

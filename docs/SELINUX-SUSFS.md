@@ -1,56 +1,34 @@
 # SELinux and SUSFS
 
-## Recommended configuration
+## Settings
 
-- Keep **real SELinux enforcing** after installing the compatibility policy.
-- Keep MuMu's disk setting **Writable** and vendor root **Off**.
-- Choose **Hide SELinux modification** On or Off in KernelSU Next. Both choices persist through reboot. With no saved preference, this port defaults to On.
-- Leave Next's **AVC spoofing** Off. Its audit hook is not connected in this integration.
+- Keep real **SELinux enforcing**, MuMu's disk **Writable**, and vendor root **Off**.
+- **Hide SELinux modification** can be On or Off. Both saved choices persist through reboot; the unset default is On.
+- Keep **AVC spoofing Off**. This integration does not connect its audit hook.
 
-The hiding switch sanitizes selected SELinux context/access queries and status counters. It does not change the real enforce flag or disable access checks. A root-side read of `/sys/fs/selinux/enforce` is used for maintenance verification.
+The hiding switch sanitizes selected context/access queries and status counters. It does not disable access checks. Maintenance verifies the actual flag through a root-side read of `/sys/fs/selinux/enforce`.
 
-## What enforcing protects
+## Enforcement
 
-Android's user IDs separate apps; SELinux adds restrictions based on process and resource labels. Enforcing applies those restrictions. It remains useful with root installed because ordinary app processes do not automatically become privileged.
+The compatibility policy gives trusted MuMu services the virtual-hardware access they require while retaining ordinary-app isolation. KernelSU's root domain is privileged. See [service permissions](SERVICE-POLICY.md) for the scope and shared-domain tradeoffs.
 
-The MuMu repair grants trusted services the virtual-hardware operations they require. Those services have more access than under the incomplete vendor policy. Ordinary app restrictions remain in place. This is not equivalent to a vendor-certified phone policy or a guarantee that every root extension is confined. KernelSU's own root domain is privileged by design.
+Installation compiles policy with the checksum-pinned `magiskpolicy` utility from Magisk v27.0. The utility is used only as a compiler; Magisk root and Manager are not installed. Compiler output hashes and permission semantics are checked separately.
 
-See [service policy](SERVICE-POLICY.md) for which permissions change. Do not turn all SELinux denials into allow rules: denied app access to private resources is expected.
+## SUSFS package
 
-## What the SUSFS package does automatically
+The `mumu_susfs` KernelSU package contains the MuMu-compatible kernel module, `susfs-sc`, boot scripts, and payload checksums. At boot it hides the KernelSU/SUSFS module names, registers known root/policy paths, and enables mount filtering.
 
-The `mumu_susfs` KernelSU package contains:
+Defaults cover `/data/adb` and the installer's system paths. Additional modules and apps may need separate rules. Root authorization does not exempt an app's ordinary process from every filter.
 
-- The MuMu-compatible SUSFS kernel module.
-- `susfs-sc`, its control utility.
-- Boot scripts, target checks and payload checksums.
+This is an independent SUSFS-compatible LKM using protocol v2.3.0. It is not the full canonical in-tree implementation. No general controller/WebUI is bundled. Package visibility, emulator identity, injection traces, and hardware-backed attestation are outside its default coverage.
 
-At boot it hides the engine/KernelSU module names, registers the known root and policy paths, and enables mount filtering. Ordinary app processes receive the applicable filtered view; privileged access follows the engine's rule-specific exemptions.
-
-The defaults cover `/data/adb` and this installer's system-side root/policy paths. They do not automatically discover and conceal every trace left by additional Zygisk, Xposed or other modules. Granting an app root does not universally exempt its ordinary process from every filter.
-
-## What it does not provide
-
-This is a port of an independent SUSFS-compatible LKM, protocol v2.3.0. It is not canonical in-tree SUSFS and has no claim of full feature parity.
-
-- No general SUSFS WebUI/controller is included.
-- Metadata, mapping and redirect support does not mean rules for every app are configured.
-- App/package lists, emulator identity, injection traces and hardware attestation are separate issues.
-- Hiding rules cannot guarantee that all apps will consider the device unmodified.
-
-Install extra controllers only after checking their compatibility with this engine. Installing a generic module cannot supply kernel hooks that this build does not implement.
-
-## Policy tool
-
-Installation uses the checksum-pinned standalone `magiskpolicy` utility from Magisk v27.0 to compile policy. It does not install Magisk root or its Manager. The pin is deliberate: different parser versions handle ioctl ranges differently. The compiled output hashes and the actual permissions are checked separately.
-
-## Diagnostics and removal
+## Verification and removal
 
 ```sh
 python3 ksu.py verify-hardening --instance INDEX
 python3 ksu.py verify-susfs --instance INDEX
 ```
 
-A ready/version response verifies startup and identity, not every hiding behavior. Behavioral coverage is listed in [validation](VALIDATION.md).
+These commands check startup and identity. [Guest tests](../tests/guest/README.md) exercise enforcement and hiding behavior.
 
-To stop loading the SUSFS engine, disable **MuMu SUSFS** in KernelSU Next's Modules screen and cold-boot. Keep SELinux enforcing independently of that choice. Do not hot-unload either kernel module.
+To stop loading SUSFS, disable **MuMu SUSFS** in Next's Modules screen and cold-boot. Keep SELinux enforcing. Do not hot-unload either kernel module.

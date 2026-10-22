@@ -1,63 +1,61 @@
 # KernelSU-Emulator
 
-Install **KernelSU Next and the MuMu SUSFS port** on **MuMuPlayer Pro 1.9.2 for Apple Silicon**, with SELinux enforcing and MuMu's built-in root removed.
+Install KernelSU Next and the MuMu SUSFS port on **MuMuPlayer Pro 1.9.2 for Apple Silicon**, with SELinux enforcing and MuMu's built-in root removed.
 
-The installer keeps MuMu's original kernel. It loads compatible KernelSU and SUSFS kernel modules from the selected instance's private system disk. Other MuMu builds and Windows are not supported by this profile.
+The installer uses MuMu's original kernel and the selected instance's private system disk. Other MuMu builds and Windows are unsupported.
 
 ## Download
 
-Download the ZIP and checksum file from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest). Extract the ZIP, then open Terminal in the extracted folder. It contains `ksu.py`, its supporting files, and the matched `core/` and `susfs/` payloads.
+Download `KernelSU-Emulator-v1.0.5-mumu-pro-1.9.2-arm64.zip` and `SHA256SUMS-v1.0.5.txt` from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest).
+
+The ZIP contains the installer, matched `core/` and `susfs/` bundles, source archives, and licenses. Verify it before extracting:
+
+```sh
+shasum -a 256 -c SHA256SUMS-v1.0.5.txt
+```
 
 Requirements:
 
-- macOS on Apple Silicon, MuMuPlayer Pro **1.9.2**.
+- macOS on Apple Silicon and MuMuPlayer Pro **1.9.2**.
 - Python **3.11.8 or later** and Android Platform Tools (`adb`).
-- `qemu-img` and `e2fsprogs`: `brew install qemu e2fsprogs`.
+- For fresh installation: `qemu-img` and `e2fsprogs` (`brew install qemu e2fsprogs`).
 - Keep the MuMu launcher open. Docker is needed only to build from source.
 
-Optional download verification, before extracting:
+Open Terminal in the extracted folder. Run `python3 ksu.py list` and replace `0` below with your intended instance index. Close games before commands that stop or restart an instance.
+
+## Update an existing installation
+
+Apply the current SELinux and service repairs, including the Recent Apps toolbar fix:
 
 ```sh
-shasum -a 256 -c SHA256SUMS-v1.0.4.txt
-```
-
-## Repair an existing installation
-
-This source checkout also includes an unreleased repair for the **Recent Apps** toolbar button on v1.0.3/v1.0.4 installations. Run the commands below using this checkout's `ksu.py` to apply it. The repair keeps SELinux enforcing and preserves apps and launcher settings.
-
-For v1.0.1/v1.0.2, the latest release also supplies the earlier SELinux and vendor-service repairs. These commands apply the repairs available in the copy of `ksu.py` you use, without reinstalling KernelSU, SUSFS or your apps:
-
-```sh
-python3 ksu.py list
 python3 ksu.py update-policy --instance 0
 python3 ksu.py stop --instance 0
 python3 ksu.py start --instance 0
 python3 ksu.py verify-hardening --instance 0
 ```
 
-**Replace `0` with the index shown for your intended device.** Close games before stopping an instance. This repair needs Python, ADB and MuMu; the disk tools are needed for fresh installation. Unknown or modified policy installations are rejected instead of overwritten.
+This preserves KernelSU, SUSFS, apps, and launcher settings. It requires authorized Shell root and a recognized policy installation. See [Updating](docs/UPDATING.md) for core or SUSFS updates.
 
-## Install on an instance without KernelSU
+## Fresh installation
 
-If Magisk is installed, use its **Complete Uninstall** first. Do not install over another root framework.
+Uninstall any other root framework first. For Magisk, use its **Complete Uninstall**.
 
-1. List instances and install the core on the intended index:
+1. Install the core:
 
    ```sh
-   python3 ksu.py list
    python3 ksu.py install --instance 0 --bundle core
    ```
 
 2. In Android, open **KernelSU Next → Superuser → Shell** and allow root for Shell.
 
-3. Install the enforcing policy and SUSFS, then remove MuMu's old root helpers:
+3. Install the enforcing policy and SUSFS, then remove MuMu's root helpers:
 
    ```sh
    python3 ksu.py harden-existing --instance 0 --bundle core --susfs-bundle susfs
    python3 ksu.py clean-vendor-root --instance 0
    ```
 
-4. Check the installation:
+4. Verify:
 
    ```sh
    python3 ksu.py verify --instance 0 --root
@@ -66,40 +64,41 @@ If Magisk is installed, use its **Complete Uninstall** first. Do not install ove
    python3 ksu.py verify-vendor-cleanup --instance 0
    ```
 
-KernelSU Next should show **Working**. Grant root to other apps individually. The tools modify the selected instance in place and do not create backups or clones.
+KernelSU Next should show **Working**. Test MuMu's Recent Apps button and Clear All. Grant other apps root individually.
 
-## Settings to keep
+Installation and maintenance modify the selected instance in place without backups or clones.
 
-| Setting | Use |
+## Required settings
+
+| Setting | Value |
 | --- | --- |
-| MuMu system disk mode | **Writable**; this selects the modified private disk |
+| MuMu system disk mode | **Writable** |
 | MuMu built-in root | **Off** after installation |
-| Android `/system` mount | Normally read-only; KernelSU still works |
-| SELinux mode | **Enforcing** after hardening |
+| Android `/system` mount | Read-only during normal use |
+| SELinux | **Enforcing** |
 | Hide SELinux modification | Your choice; saved On and Off both persist |
-| AVC spoofing | Off in this port; its Next audit hook is not connected |
+| AVC spoofing | **Off**; this port does not connect its audit hook |
 
-Changing MuMu's disk mode to Readonly bypasses the private disk containing the installation. It is different from mounting Android's `/system` read-only.
+MuMu's Writable setting selects the private disk containing the installation. Android's read-only `/system` mount protects that disk during normal use.
 
-## What is included
+## Included components
 
-- A MuMu-compatible KernelSU Next legacy kernel port with the official **v3.4.2** Manager and daemon.
-- A separate **SUSFS-compatible LKM**, protocol v2.3.0, with baseline path, module-name and mount-hiding configuration.
-- SELinux service identities, file labels and virtual-hardware permissions for this MuMu build.
-- A checksum-locked fix for the MuMu optimizer's restart handling.
-- Installation, policy repair, framework updates and vendor-root cleanup commands.
-- Startup logs retained up to 64 KiB each, trimmed during startup and boot completion without a background watcher or archived copies.
+- MuMu-compatible KernelSU Next legacy module and official **v3.4.2** Manager/daemon.
+- SUSFS-compatible LKM, protocol **v2.3.0**, with default path, module-name, and mount filtering.
+- SELinux labels and permissions for MuMu's graphics, media, input, toolbar, and hardware services.
+- Fingerprint-checked optimizer repair and vendor-root removal.
+- Installer, policy migration, framework update, and verification commands.
 
-The SUSFS port is not the complete canonical SUSFS implementation or a universal root-hiding guarantee. Zygisk, Xposed and integrity modules are separate installations. MuMu remains an emulator; this project does not provide hardware-backed device attestation.
+Zygisk, Xposed, and integrity modules are separate installations. The SUSFS port has limited coverage and cannot guarantee root hiding or hardware-backed device attestation.
 
 ## Guides
 
-- [How the installation works](docs/ARCHITECTURE.md)
-- [SELinux and SUSFS settings](docs/SELINUX-SUSFS.md)
-- [Updating MuMu, KernelSU Next or SUSFS](docs/UPDATING.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [SELinux and SUSFS](docs/SELINUX-SUSFS.md)
+- [Updating](docs/UPDATING.md)
 - [Service permissions and troubleshooting](docs/SERVICE-POLICY.md)
-- [Building from source](docs/BUILDING.md)
+- [Building](docs/BUILDING.md)
+- [Guest tests](tests/guest/README.md)
+- [Porting](docs/PORTING.md)
 
-Developer material is separate: [test results](docs/VALIDATION.md), [guest regression tests](tests/guest/README.md), [porting notes](docs/PORTING.md), and [framework research](research/ROOT-FRAMEWORKS.md).
-
-Original installer/test code is MIT-licensed; kernel modifications are GPL-2.0-only. Upstream licenses apply to bundled components. MuMu's proprietary kernel and disks are not distributed. See [NOTICE](NOTICE.md).
+Original installer/test code is MIT-licensed; kernel modifications are GPL-2.0-only. Bundled components retain their upstream licenses. See [NOTICE](NOTICE.md).

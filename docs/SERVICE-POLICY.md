@@ -1,68 +1,44 @@
 # MuMu service permissions
 
-## Why MuMu needs policy changes
-
-The supported MuMu image starts with SELinux permissive. Its virtual-hardware services therefore perform operations absent from the vendor policy. Switching to enforcing without repairing those dependencies blocks real functionality.
-
-This project assigns service identities and file labels, then grants the necessary interfaces. The kernel enforces the resulting policy. KernelSU's root authorization and SELinux hiding are separate from these permissions.
+The supported MuMu image starts with SELinux permissive. Its virtual-hardware services need additional identities, labels, and permissions to run under enforcement.
 
 ## Permission groups
 
 | Function | Processes/domains | Access |
 | --- | --- | --- |
-| Graphics and media buffers | SurfaceFlinger, system server, audio/camera/media services and relevant virtual-hardware HALs | Read MuMu runtime configuration; use `/dev/vaddress` with the driver's `0x4c15–0x4c1a` control commands |
-| Service discovery and callbacks | `nemuinit` and `powerbtnd` in `init`, Android service manager | Binder calls/handle transfers in both directions and process-context lookup |
-| Runtime device creation | Kernel devtmpfs worker | Create nodes when MuMu recreates virtual input devices |
-| Native mouse and keyboard | `nemuinput`, running in `init` | Open/read/write the vendor-labeled input device; use the `0x55` uinput control-command family |
-| Toolbar recent apps | MuMu's native bridge in `init` | Execute the `input` shell wrapper and `cmd` dispatcher with `shell_exec` labels; find Android's input service |
-| Performance management | `nemu_sys_opt`, running in `init` | Read CPU/I/O pressure counters and control the vendor's `/proc` VM tunables; read network-interface metadata in sysfs |
+| Graphics and media | SurfaceFlinger, system server, media services, and virtual-hardware HALs | Read runtime configuration; use `/dev/vaddress` with driver commands `0x4c15–0x4c1a` |
+| Service discovery and callbacks | Native MuMu helpers in `init`, Android service manager | Binder calls, handle transfers, and process-context lookup |
+| Device creation | Kernel devtmpfs worker | Create nodes for virtual input devices |
+| Mouse and keyboard | `nemuinput` in `init` | Use the vendor-labeled input device and `0x55` uinput commands |
+| Recent Apps toolbar | MuMu bridge in `init` | Execute `input` and `cmd` with `shell_exec` labels; find `input_service` |
+| Performance management | `nemu_sys_opt` in `init` | Read pressure counters and network metadata; control vendor `/proc` tunables |
 | Crash reporting | `crash_dump` | Read MuMu runtime configuration |
-| App isolation | Ordinary app and isolated-process domains | No additional permissions from the v1.0.3 service repair |
 
-The graphics/media list is explicit in `profiles/mumu-pro-1.9.2-arm64/hardening/policy-v1.0.3.rules`. It covers services that can allocate buffers after startup, rather than only processes seen opening the driver during boot.
+The full rules are in `profiles/mumu-pro-1.9.2-arm64/hardening/policy.rules`. MuMu's native helpers share the `init` domain, so their grants apply to that domain. Vendor VM tunables use the general `proc` label. These permissions retain app isolation but differ from a stock phone's policy. KernelSU's root domain is privileged by design.
 
-MuMu's native helpers share the `init` domain in this integration. Their additional permissions therefore apply to that domain, not exclusively to one executable. In particular, this vendor labels its VM tunables with the general `proc` type; the performance-management grant expands `init` access to that type. It does not give apps that access. This is a compatibility tradeoff, not a claim of stock-phone policy equivalence or Android certification.
+## Toolbar commands
 
-No app domain is made permissive. The repair adds no blanket allow rule across all objects or domains. The privileged KernelSU domain remains privileged by design.
+MuMu's Recent Apps button executes `/system/bin/input`, a shell wrapper for `cmd input`. The repair labels those two entry points `shell_exec` and lets `init` discover `input_service`. It uses the existing shell-execution permission rather than granting execution across all `system_file` objects.
 
-## Fixed failures in v1.0.3
-
-- **Scene/video crashes:** the media decoder could not open MuMu's graphics connection. Video buffer import failed, then the game's JNI error handler aborted. The repair covers the decoder and other trusted graphics/media clients.
-- **Mouse/keyboard stops responding:** `nemuinput` was denied writes to `/dev/uinput`. ADB-generated touches did not exercise this path. The repair includes both ongoing input and device recreation after service restart.
-- **Native-service restarts:** startup in permissive mode masked missing service-manager handle/callback permissions. The repair covers Binder reconnection and network-interface discovery under enforcement.
-- **Optimizer restart crash:** the vendor helper treated an existing control group as a fatal error. A version-locked binary patch accepts only `EEXIST` for that mkdir call and retains the original handling of other errors. It reuses the kernel-owned group instead of moving or killing its worker. The original vendor binary is not redistributed.
-- **Performance monitor and diagnostic denials:** required pressure-counter, VM-control and runtime-configuration access was missing.
-
-The installation check now includes 18 persistent core, media and hardware services. A service being `running` is not proof that every function works; release qualification also exercises native input, decoder output, audio, sensors and networking. See the separate [validation record](VALIDATION.md) for measured coverage and remaining limits.
+Test the actual toolbar button from Home and an app, then test Clear All. ADB key events run in the `shell` domain and do not test the native bridge's permissions.
 
 ## Service lifecycle
 
-### Recent-apps toolbar repair
+The optimizer repair accepts an existing control group only for the fingerprinted vendor binary and the expected `mkdir` failure. It preserves handling of other errors.
 
-The toolbar's recent-apps button runs `/system/bin/input`, which invokes `cmd input`, from MuMu's native bridge in the `init` domain. The original `system_file` labels prevent execution under enforcement; after execution is allowed, service discovery also needs `init` access to `input_service`. An ADB `input keyevent KEYCODE_APP_SWITCH` test uses the `shell` domain and can succeed while the native button remains broken.
-
-The repair labels only `/system/bin/input` and `/system/bin/cmd` as `shell_exec`, reusing the existing permission for shell-command execution, and adds `allow init input_service service_manager find`. It does not grant `init` execution of every `system_file`. File-context entries and explicit label verification make the repair persistent and checkable. The updater checks the previous file and patch hashes before replacing the label table; both known v1.0.3/v1.0.4 policy serializations are accepted.
-
-Test the actual MuMu toolbar button after a cold boot, repeat it from both Home and an app, and exercise Clear All. Also verify ADB input and package commands still work. Keep SELinux enforcing throughout these tests.
-
-### Restarting services
-
-MuMu's Android framework caches its central `nemuinit` Binder connection. Forcibly restarting that bridge in isolation can produce a `DeadObjectException` in `system_server` and an Android reboot. Use a full MuMu stop/start for central-bridge changes; the installer does this. This vendor lifecycle limitation is not fixed by broader SELinux permissions. The supported hot-restart checks cover input, graphics cleanup, the repaired optimizer and the power-button helper.
+For central bridge changes, use a full MuMu stop/start. The Android framework caches its `nemuinit` Binder connection; restarting that bridge alone can restart Android. Input, graphics cleanup, optimizer, and power-button helpers can be tested independently under enforcement.
 
 ## Troubleshooting
 
-1. Run `python3 ksu.py verify-hardening --instance INDEX`. A fallback, unexpected file hash or stopped required service is a failed check.
-2. Identify whether Android is alive but native input is blocked, a single app crashed, or the VM restarted. These require different fixes.
-3. Read the new tombstone and logs immediately after a failure. A JNI error alone does not identify its upstream cause.
-4. Correlate an SELinux denial with the failed service, resource and operation. Ordinary apps being denied private files is expected; do not turn every denial into an allow rule.
-5. Repair the complete interface needed by the responsible service. Test initial use, repeated use, service restart and cold boot, plus an app operation that must still be denied.
+1. Run `python3 ksu.py verify-hardening --instance INDEX`. Check actual enforcement, fallback, file hashes, labels, and all 18 required services.
+2. Reproduce the failed operation through its real input path. Distinguish a blocked button, app crash, and emulator restart.
+3. Read the corresponding tombstone and recent SELinux denials. Match the service, resource, and operation before changing policy.
+4. Test the repair after cold boot and repeated use. Confirm ordinary apps still fail protected-file access.
 
-Keep SELinux enforcing while testing a qualified repair. The “Hide SELinux modification” switch changes selected observations; it does not supply missing permissions or fix a broken service.
+Keep SELinux enforcing while testing. The hiding switch does not supply missing permissions. Ordinary apps being denied private resources is expected.
 
-## Maintaining the policy
+## Policy maintenance
 
-The full fresh-install policy is `hardening/policy.rules`. Reviewed migration rules and input/output hashes are listed in `hardening/policy-migrations.json`.
+`update-policy` accepts only fingerprinted previous installations. It checks input files, patch hashes, and compiler output before publishing the policy, label table, boot files, and any vendor helper repair. It preserves the saved hiding preference, removes temporary staging files, and restores `/system` to read-only.
 
-`update-policy` verifies the previous installation, compiles the reviewed change with the pinned policy utility, checks the resulting hash, applies it live, installs it and any fingerprinted helper repair on the private system disk, restarts a replaced helper to release its old executable, and restores `/system` to read-only. It preserves user SELinux-hiding preferences. It creates no recovery copy; compiler/staging files are removed.
-
-Fresh compilation and migration can serialize an equivalent policy differently. Only individually pinned outputs are accepted. Their rules, type attributes and ordinary-app permissions are compared with SETools before qualification. Unknown output is rejected.
+Equivalent compiled policies can have different serializations. Each accepted hash must be inspected independently, including type attributes, ioctl permissions, and ordinary-app rules. See [guest tests](../tests/guest/README.md) and [Updating](UPDATING.md).

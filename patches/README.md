@@ -1,10 +1,11 @@
-# Kernel patch licensing and scope
+# Kernel patches
 
-The patches in this directory are modifications to GPL-2.0-only kernel code and are distributed under **GPL-2.0-only**. Original upstream copyright notices remain applicable.
+These patches modify GPL-2.0-only kernel code and are distributed under **GPL-2.0-only**. Upstream copyright notices remain applicable.
 
-- `mumu-task-layout.patch` applies to Android common commit `f931d3c324845b1be4337d27b565351fb581f206`.
-- `kernelsu-next-mumu.patch` applies to KernelSU Next legacy commit `c81cdf51c3bb606836c6fc9a7cc858053eb0bc62`.
+| Patch | Target | Purpose |
+| --- | --- | --- |
+| `mumu-task-layout.patch` | Android common `f931d3c324845b1be4337d27b565351fb581f206` | Match MuMu's measured task layout |
+| `kernelsu-next-mumu.patch` | KernelSU Next legacy `c81cdf51c3bb606836c6fc9a7cc858053eb0bc62` | Adapt root hooks, credentials, and loading to MuMu |
+| `susfs-lkm-mumu.patch` | SUSFS LKM legacy `0b197bfd3d3402ee108e19c66ed3293d9d14481a` | Adapt filesystem hooks and locking to MuMu's kernel |
 
-- `susfs-lkm-mumu.patch` applies to the independent SUSFS LKM legacy commit `0b197bfd3d3402ee108e19c66ed3293d9d14481a`, after the specified CRLF normalization.
-
-The build uses these exact revisions, the included configuration, and zero-fuzz patch application. The result is a custom MuMu port, not an unmodified upstream KernelSU release. See [research](../research/MUMU.md) for the reason for each change.
+The build uses these exact revisions, the profile's configuration, and zero-fuzz patch application. SUSFS files listed in its profile are normalized to LF before patching. Recheck ABI assumptions before applying the patches to another kernel.
