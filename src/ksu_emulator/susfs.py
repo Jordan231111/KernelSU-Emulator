@@ -201,8 +201,8 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
         raise Error("A verified KernelSU-Emulator base and authorized Shell are required")
     adb = mumu.connect(index)
     was_hardened = adb.shell("getprop sys.ksu_mumu_policy.enforcing_ready") == "1" and adb.su("cat /sys/fs/selinux/enforce") == "1"
-    if adb.shell("getprop sys.ksu_mumu_policy.fallback"):
-        raise Error("Resolve the SELinux hardening fallback state before adding another kernel component")
+    if adb.shell("getprop sys.ksu_mumu_policy.fallback") or adb.shell("getprop sys.ksu_mumu_policy.boot_health") == "failed":
+        raise Error("Resolve the SELinux startup health failure before adding another kernel component")
     stage = "/data/local/tmp/mumu-susfs-" + uuid.uuid4().hex + ".zip"
     adb.push(bundle / manifest["archive"], stage)
     try:
@@ -229,8 +229,6 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
         try:
             adb = mumu.start(index)
             adb.su("touch /data/adb/modules/" + spec["module_id"] + "/disable")
-            if was_hardened:
-                adb.su("rm -f /data/adb/ksu-emulator/enforcing-pending")
             mumu.stop(index)
             mumu.start(index)
         except (Error, OSError) as disable_error:

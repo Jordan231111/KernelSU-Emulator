@@ -120,11 +120,12 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> di
     mode = adb.su("cat /sys/fs/selinux/enforce")
     fallback = adb.shell("getprop sys.ksu_mumu_policy.fallback")
     ready = adb.shell("getprop sys.ksu_mumu_policy.enforcing_ready") == "1"
+    health = adb.shell("getprop sys.ksu_mumu_policy.boot_health")
     completed = adb.su("cat /data/adb/ksu-emulator/enforcing-boot-ok", check=False)
     result = {"instance": index, "kernel_enforcing": mode == "1", "startup_ready": ready,
-              "fallback": fallback or None, "boot_id": current_boot,
+              "fallback": fallback or None, "boot_health": health or None, "boot_id": current_boot,
               "completed_boot_matches": completed == current_boot,
-              "verified": mode == "1" and ready and not fallback and completed == current_boot}
+              "verified": mode == "1" and ready and not fallback and health == "passed" and completed == current_boot}
     for key, arguments in (("selinux_hiding_enabled", "4"), ("saved_selinux_hiding_enabled", "4 --config")):
         value = re.search(r"^Value: ([01])$", adb.su("/data/adb/ksud feature get " + arguments), re.M)
         result[key] = bool(int(value.group(1))) if value else None
@@ -160,12 +161,12 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> di
     return result
 
 
-def wait_hardening(mumu: MuMu, index: int, profile_id: str, timeout: int = 30) -> dict:
+def wait_hardening(mumu: MuMu, index: int, profile_id: str, timeout: int = 75) -> dict:
     """Android's boot flag precedes the core-service stability observation."""
     deadline = time.monotonic() + timeout
     while True:
         result = verify_hardening(mumu, index, profile_id)
-        if result["verified"] or result["fallback"] or time.monotonic() >= deadline:
+        if result["verified"] or result["fallback"] or result.get("boot_health") == "failed" or time.monotonic() >= deadline:
             return result
         time.sleep(1)
 

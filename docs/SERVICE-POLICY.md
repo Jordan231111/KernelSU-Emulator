@@ -30,7 +30,7 @@ For central bridge changes, use a full MuMu stop/start. The Android framework ca
 
 ## Troubleshooting
 
-1. Run `python3 ksu.py verify-hardening --instance INDEX`. Check actual enforcement, fallback, file hashes, labels, and all 18 required services.
+1. Run `python3 ksu.py verify-hardening --instance INDEX`. Check actual enforcement, `boot_health`, file hashes, labels, and all 18 required services. A successful boot reports `boot_health: passed` and a completion marker matching the current boot. The health check never changes SELinux mode; `policy.log` records the boot ID and services that did not stabilize.
 2. Reproduce the failed operation through its real input path. Distinguish a blocked button, app crash, and emulator restart.
 3. Read the corresponding tombstone and recent SELinux denials. Match the service, resource, and operation before changing policy.
 4. Test the repair after cold boot and repeated use. Confirm ordinary apps still fail protected-file access.

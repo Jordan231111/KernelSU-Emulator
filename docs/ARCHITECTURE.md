@@ -26,7 +26,7 @@ Root applies to the Android guest. The modules target the exact kernel and drive
 
 MuMu's **Writable** setting selects the instance's private system disk. Selecting Readonly bypasses the installed files. Android normally mounts `/system` read-only; maintenance remounts it only while replacing checked files.
 
-The tools operate in place without backups, clones, or disk rollback. Boot guards report failed startup and can skip enforcement or SUSFS on the next boot. Verification treats fallback as a failure.
+The tools operate in place without backups, clones, or disk rollback. After the labels and KernelSU are ready, SELinux startup enables enforcement and exits. It never restores permissive mode or skips enforcement because of an earlier incomplete boot. A separate check observes core-service stability after Android reports boot completion; a failed check reports unhealthy startup without changing SELinux mode. The SUSFS kernel-module guard can independently skip its engine after an incomplete boot. Verification treats unhealthy startup or SUSFS fallback as a failure.
 
 ## Vendor-root cleanup
 
