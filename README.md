@@ -6,12 +6,12 @@ The installer uses MuMu's original kernel and the selected instance's private sy
 
 ## Download
 
-Download `KernelSU-Emulator-v1.0.5-mumu-pro-1.9.2-arm64.zip` and `SHA256SUMS-v1.0.5.txt` from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest).
+Download `KernelSU-Emulator-v1.0.6-mumu-pro-1.9.2-arm64.zip` and `SHA256SUMS-v1.0.6.txt` from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest).
 
 The ZIP contains the installer, matched `core/` and `susfs/` bundles, source archives, and licenses. Verify it before extracting:
 
 ```sh
-shasum -a 256 -c SHA256SUMS-v1.0.5.txt
+shasum -a 256 -c SHA256SUMS-v1.0.6.txt
 ```
 
 Requirements:
