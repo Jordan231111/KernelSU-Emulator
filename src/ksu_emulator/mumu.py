@@ -70,6 +70,18 @@ class MuMu:
     def configure(self, index: int, **settings) -> None:
         self.info(index)
         self.call("config", str(index), "--setting", json.dumps(settings))
+        if "vmRootEnable" in settings:
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    saved = self.settings(index).get("vmRootEnable")
+                except (FileNotFoundError, json.JSONDecodeError):
+                    saved = None
+                if saved is settings["vmRootEnable"]:
+                    return
+                if time.monotonic() >= deadline:
+                    raise Error(f"MuMu did not persist vmRootEnable={settings['vmRootEnable']} for instance {index} (read {saved!r})")
+                time.sleep(0.25)
 
     def stop(self, index: int) -> None:
         if self.info(index)["state"] == "stopped":

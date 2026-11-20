@@ -5,8 +5,9 @@ from unittest.mock import Mock, patch
 
 from src.ksu_emulator.bundle import FILES, SYSTEM_FILES
 from src.ksu_emulator.common import Error, load_profile, save_json, sha256
-from src.ksu_emulator.install import install, upgrade, verify
+from src.ksu_emulator.install import boot_with_vendor_root, install, upgrade, verify
 from src.ksu_emulator.maintenance import compare_capture, read_capture
+from src.ksu_emulator.mumu import MuMu
 from src.ksu_emulator.profiles import build_settings, validate_profile
 from src.ksu_emulator.upstream import select_manager
 
@@ -79,18 +80,80 @@ class CompatibilityTests(unittest.TestCase):
         adb.call.return_value.returncode = 0
         adb.call.return_value.stdout = "".join(f"{digest}  {p}\n" for p in paths).encode()
         manifest = {"profile": self.profile, "files": dict.fromkeys(FILES, digest)}
-        evidence = {"persistent_install_ready": True, "privileged_verification_required": False}
+        evidence = {"persistent_install_ready": True, "privileged_verification_required": False, "adb_uid": "2000"}
         with patch("src.ksu_emulator.install.validate_bundle", return_value=manifest), \
              patch("src.ksu_emulator.install.verify", return_value=evidence) as check:
             result = install(mumu, 0, Path("unused"))
             self.assertTrue(result["already_installed"])
             check.assert_called_once()
+            evidence["adb_uid"] = "0"
+            with self.assertRaisesRegex(Error, "Ordinary ADB"):
+                install(mumu, 0, Path("unused"))
             manifest["files"]["manager.apk"] = "b" * 64
             with self.assertRaisesRegex(Error, "manager.apk"):
                 install(mumu, 0, Path("unused"))
         mumu.configure.assert_not_called()
         mumu.stop.assert_not_called()
         adb.push.assert_not_called()
+
+    def test_vendor_root_waits_for_persisted_setting(self):
+        mumu = Mock()
+        mumu.settings.side_effect = [{"vmRootEnable": True}, {"vmRootEnable": False}]
+        with patch("src.ksu_emulator.mumu.time.sleep") as wait:
+            MuMu.configure(mumu, 2, vmRootEnable=False)
+        wait.assert_called_once()
+
+    def test_vendor_root_requires_a_new_boot_and_shell_uid(self):
+        old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        new = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        mumu = Mock()
+        mumu.start.return_value.shell.return_value = old + "\n2000"
+        mumu.connect.return_value.shell.side_effect = [Error("offline"), new + "\n0", new + "\n2000"]
+        mumu.settings.return_value = {"vmRootEnable": False}
+        attempts = []
+        with patch("src.ksu_emulator.install.time.sleep"):
+            boot_with_vendor_root(mumu, 2, old, attempts, enabled=False)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[0]["boot"], new)
+        mumu.start.assert_called_once()
+
+    def test_persistent_root_fails_after_one_cold_boot_retry(self):
+        old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        first = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        second = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        mumu = Mock()
+        mumu.start.return_value.shell.side_effect = [first + "\n0", second + "\n0"]
+        attempts = []
+        with patch("src.ksu_emulator.install.time.monotonic", side_effect=[0, 20, 30, 50]), \
+             self.assertRaisesRegex(Error, "adb_uid"):
+            boot_with_vendor_root(mumu, 2, old, attempts, enabled=False)
+        self.assertEqual([row["previous_boot"] for row in attempts], [old, first])
+        self.assertEqual(mumu.configure.call_count, 2)
+
+    def test_retry_accepts_shell_only_on_another_distinct_boot(self):
+        old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        first = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        second = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        mumu = Mock()
+        mumu.start.return_value.shell.side_effect = [first + "\n0", second + "\n2000"]
+        mumu.settings.return_value = {"vmRootEnable": False}
+        attempts = []
+        with patch("src.ksu_emulator.install.time.monotonic", side_effect=[0, 20, 30]):
+            boot_with_vendor_root(mumu, 2, old, attempts, enabled=False)
+        self.assertEqual([row["adb_uid"] for row in attempts], ["0", "2000"])
+        self.assertEqual(attempts[1]["previous_boot"], first)
+
+    def test_bootstrap_requires_root_on_the_private_disk_boot(self):
+        old = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        new = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        mumu = Mock()
+        mumu.start.return_value.shell.return_value = new + "\n2000"
+        mumu.connect.return_value.shell.return_value = new + "\n0"
+        mumu.settings.return_value = {"vmRootEnable": True}
+        with patch("src.ksu_emulator.install.time.sleep"):
+            adb = boot_with_vendor_root(mumu, 2, old, [], enabled=True)
+        self.assertIs(adb, mumu.connect.return_value)
+        mumu.configure.assert_called_once_with(2, vmRootEnable=True, systemWritable=True)
 
     def test_partial_install_is_rejected_before_vendor_root_or_shutdown(self):
         mumu = Mock()

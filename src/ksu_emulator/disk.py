@@ -72,20 +72,34 @@ class Ext4Tools:
     def path(self, path: Path, work: Path) -> str:
         return "/disk/" + str(path.relative_to(work)) if self.docker else str(path)
 
-    def call(self, program: str, args: list, work: Path):
+    def call(self, program: str, args: list, work: Path, *, check: bool = True):
         if not self.docker:
-            return run([self.host[program], *args], timeout=180)
+            return run([self.host[program], *args], timeout=180, check=check)
         user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
         return run(["docker", "run", "--rm", *user, "-v", f"{work}:/disk",
-                    "ksu-emulator-toolchain:22.04", program, *args], timeout=180)
+                    "ksu-emulator-toolchain:22.04", program, *args], timeout=180, check=check)
+
+    def check_partition(self, partition: str, work: Path, *, prepare: bool = False) -> bool:
+        """Preen only an extracted input partition. Require clean readback after corrections."""
+        flag = "-fp" if prepare else "-fn"
+        result = self.call("e2fsck", [flag, partition], work, check=False)
+        if result.returncode == 0:
+            return False
+        if prepare and result.returncode == 1:
+            self.check_partition(partition, work)
+            return True
+        details = (result.stdout + b"\n" + result.stderr).decode(errors="replace").strip()
+        raise Error(f"e2fsck {flag} failed ({result.returncode}):\n{details[-3000:]}")
 
 
-def relabel_system(mumu: MuMu, index: int, trees: list[str], tools: Ext4Tools | None = None) -> dict:
+def relabel_system(mumu: MuMu, index: int, trees: list[str], recipe: str, tools: Ext4Tools | None = None) -> dict:
     device = mumu.info(index)
     if device["state"] != "stopped":
         raise Error("Stop the selected instance before its offline disk repair")
     if not trees or any(not re.fullmatch(r"/etc/mumu-configs/[A-Za-z0-9_-]+", p) for p in trees):
         raise Error("Offline labels are limited to explicit MuMu vendor subdirectories")
+    if not re.fullmatch(r"[0-9a-f]{64}", recipe):
+        raise Error("Expected the fingerprint of the installed hardening recipe")
     disk = Path(device["bundle_path"]).resolve() / "system.qcow2"
     if not disk.is_file() or disk.is_symlink() or disk.stat().st_nlink != 1:
         raise Error("Expected a separate regular private system disk")
@@ -115,7 +129,7 @@ def relabel_system(mumu: MuMu, index: int, trees: list[str], tools: Ext4Tools | 
             if source.read(2) != b"\x53\xef":
                 raise Error("System partition is not ext4")
         part_arg = ext4.path(part, work)
-        ext4.call("e2fsck", ["-fn", part_arg], work)
+        repaired = ext4.check_partition(part_arg, work, prepare=True)
 
         def debug(command: str):
             return ext4.call("debugfs", ["-R", command, part_arg], work).stdout.decode(errors="replace")
@@ -154,9 +168,19 @@ def relabel_system(mumu: MuMu, index: int, trees: list[str], tools: Ext4Tools | 
             readback = work / f"readback-{inode}.bin"
             if not readback.is_file() or readback.read_bytes() != context:
                 raise Error(f"Offline label readback failed for {entries[inode]}")
+        # Publish the receipt in the same disk replacement as the verified labels.
+        receipt = "/etc/ksu-mumu-policy/offline-labels.sha256"
+        local = work / "receipt"
+        local.write_text(recipe + "\n")
+        local.chmod(0o644)
+        local_arg = ext4.path(local, work).replace("\\", "\\\\").replace('"', '\\"')
+        ext4.call("debugfs", ["-w", "-R", f'write "{local_arg}" {receipt}', part_arg], work)
+        ext4.call("debugfs", ["-w", "-R", f"ea_set -f {quoted} {receipt} security.selinux", part_arg], work)
+        if debug("cat " + receipt) != recipe + "\n":
+            raise Error("Offline label receipt failed readback")
         if part.stat().st_size != size:
             raise Error("Filesystem tool changed the partition size")
-        ext4.call("e2fsck", ["-fn", part_arg], work)
+        ext4.check_partition(part_arg, work)
         with raw.open("r+b") as target, part.open("rb") as source:
             target.seek(offset)
             shutil.copyfileobj(source, target, 8 << 20)
@@ -175,4 +199,4 @@ def relabel_system(mumu: MuMu, index: int, trees: list[str], tools: Ext4Tools | 
         finally:
             staged.unlink(missing_ok=True)
     return {"instance": index, "disk_before_sha256": before, "disk_after_sha256": after,
-            "labeled_inodes": len(entries), "paths": sorted(entries.values())}
+            "filesystem_repaired": repaired, "labeled_inodes": len(entries), "paths": sorted(entries.values())}

@@ -6,12 +6,12 @@ The installer uses MuMu's original kernel and the selected instance's private sy
 
 ## Download
 
-Download `KernelSU-Emulator-v1.1.0-mumu-pro-1.9.2-arm64.zip` and
-`SHA256SUMS-v1.1.0.txt` from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest).
+Download `KernelSU-Emulator-v1.1.1-mumu-pro-1.9.2-arm64.zip` and
+`SHA256SUMS-v1.1.1.txt` from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest).
 Verify the archive before extracting:
 
 ```sh
-shasum -a 256 -c SHA256SUMS-v1.1.0.txt
+shasum -a 256 -c SHA256SUMS-v1.1.1.txt
 ```
 
 The complete ZIP contains the installer, matching prebuilt `out/core/` and
@@ -56,6 +56,8 @@ Uninstall any other root framework first. For Magisk, use its **Complete Uninsta
    ```
 
 KernelSU Next should show **Working**. Test MuMu's Recent Apps button and Clear All. Grant other apps root individually.
+
+If v1.1.0 stopped during the vendor-root check, rerun step 1 from v1.1.1. If it stopped during the offline SELinux label check, rerun step 3. The installer verifies the existing files and resumes the disk work. A healthy installation needs no runtime upgrade for v1.1.1.
 
 Installation and maintenance modify the selected instance in place without backups or clones.
 

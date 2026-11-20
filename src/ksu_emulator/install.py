@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import time
 import uuid
 from pathlib import Path
 
@@ -87,12 +88,53 @@ def check_existing_install(mumu: MuMu, index: int, adb: Adb, manifest: dict, set
     for name, path in paths.items():
         if hashes.get(path) != manifest["files"][name]:
             raise Error("Installed file differs from the selected core bundle: " + name)
+    attempts = []
+    if adb.shell("id -u") == "0":
+        boot_with_vendor_root(mumu, index, adb.shell("cat /proc/sys/kernel/random/boot_id"), attempts, enabled=False)
     result = verify(mumu, index, profile_id=profile["id"])
     if result["privileged_verification_required"]:
         result = verify(mumu, index, root=True, profile_id=profile["id"])
     if not result["persistent_install_ready"]:
         raise Error("Installed core files match, but runtime verification failed")
+    if result["adb_uid"] != "2000":
+        raise Error(f"Ordinary ADB must run as Shell on the installed core (UID {result['adb_uid']!r})")
+    if attempts:
+        result["vendor_root_boots"] = attempts
     return {**result, "already_installed": True}
+
+
+def boot_with_vendor_root(mumu: MuMu, index: int, previous_boot: str, attempts: list, *, enabled: bool) -> Adb:
+    """Apply the bootstrap setting and verify both boot identity and the ADB UID."""
+    previous_boot = str(uuid.UUID(previous_boot))
+    settings = {"vmRootEnable": enabled}
+    if enabled:
+        settings["systemWritable"] = True
+    expected_uid = "0" if enabled else "2000"
+    for _ in range(2):
+        mumu.stop(index)
+        mumu.configure(index, **settings)
+        adb = mumu.start(index)
+        deadline = time.monotonic() + 15
+        observation = {"previous_boot": previous_boot}
+        attempts.append(observation)
+        while True:
+            try:
+                boot, uid = adb.shell("cat /proc/sys/kernel/random/boot_id && id -u", timeout=5).splitlines()
+                boot = str(uuid.UUID(boot))
+                observation.update(boot=boot, adb_uid=uid)
+                if boot != previous_boot and uid == expected_uid and mumu.settings(index).get("vmRootEnable") is enabled:
+                    return adb
+            except (ValueError, Error) as exc:
+                observation["error"] = str(exc)
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(1)
+            try:
+                adb = mumu.connect(index)
+            except Error as exc:
+                observation["error"] = str(exc)
+        previous_boot = observation.get("boot", previous_boot)
+    raise Error(f"Expected ADB UID {expected_uid} with vmRootEnable={enabled} on a new boot: {attempts}")
 
 
 def install(mumu: MuMu, index: int, bundle: Path, *, experimental: bool = False) -> dict:
@@ -112,19 +154,20 @@ def install(mumu: MuMu, index: int, bundle: Path, *, experimental: bool = False)
         raise Error(f"Untested MuMu system disk mode: {mode}")
     # Boot with the owner's settings first. Repeating an install on a healthy
     # instance must never turn vendor root on or interrupt a running guest.
-    existing = check_existing_install(mumu, index, mumu.start(index), manifest, settings)
+    adb = mumu.start(index)
+    existing = check_existing_install(mumu, index, adb, manifest, settings)
     if existing is not None:
         return existing
     directory = Path(device["bundle_path"]).resolve()
     record_path = ROOT / "out/installations" / (uuid.uuid4().hex + ".json")
     record = {"schema": 1, "instance": index, "profile": profile["id"], "phase": "preparing"}
     save_json(record_path, record)
-    mumu.stop(index)
     stage = None
     try:
         print("Preparing the selected instance's private system disk...", flush=True)
-        mumu.configure(index, vmRootEnable=True, systemWritable=True)
-        adb = mumu.start(index)
+        record["bootstrap_boots"] = []
+        adb = boot_with_vendor_root(mumu, index, adb.shell("cat /proc/sys/kernel/random/boot_id"),
+                                    record["bootstrap_boots"], enabled=True)
         if not (directory / "system.qcow2").is_file():
             raise Error("MuMu did not create a private system disk")
         evidence = probe(adb)
@@ -175,13 +218,11 @@ def install(mumu: MuMu, index: int, bundle: Path, *, experimental: bool = False)
             raise Error("KernelSU control API verification failed")
         record["kernel_api"] = info
         print("Disabling MuMu's vendor root and verifying another cold boot...", flush=True)
-        mumu.stop(index)
-        mumu.configure(index, vmRootEnable=False)
-        adb = mumu.start(index)
-        if adb.shell("id -u") != "2000":
-            raise Error("MuMu vendor root did not switch off")
+        record["vendor_root_boots"] = []
+        boot_with_vendor_root(mumu, index, adb.shell("cat /proc/sys/kernel/random/boot_id"),
+                              record["vendor_root_boots"], enabled=False)
         result = verify(mumu, index, profile_id=profile["id"])
-        if not result["persistent_install_ready"]:
+        if not result["persistent_install_ready"] or result["adb_uid"] != "2000":
             raise Error("Persistent KernelSU verification failed")
         record["phase"] = "verified"
         save_json(record_path, record)

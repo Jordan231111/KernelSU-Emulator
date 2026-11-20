@@ -1,8 +1,11 @@
 import struct
 import unittest
+from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import Mock
 
 from src.ksu_emulator.common import Error
-from src.ksu_emulator.disk import debugfs_rows, partition_bounds
+from src.ksu_emulator.disk import Ext4Tools, debugfs_rows, partition_bounds
 
 
 def mbr(start=2048, sectors=4194304, kind=0x83):
@@ -14,6 +17,29 @@ def mbr(start=2048, sectors=4194304, kind=0x83):
 
 
 class DiskContractTests(unittest.TestCase):
+    def fsck(self, *codes):
+        tools = object.__new__(Ext4Tools)
+        tools.call = Mock(side_effect=[CompletedProcess([], code, b"inode diagnostic", b"tool version") for code in codes])
+        return tools
+
+    def test_staged_automatic_repair_requires_clean_readback(self):
+        tools = self.fsck(1, 0)
+        self.assertTrue(tools.check_partition("part", Path("."), prepare=True))
+        self.assertEqual([c.args[1][0] for c in tools.call.call_args_list], ["-fp", "-fn"])
+        self.assertFalse(self.fsck(0).check_partition("part", Path("."), prepare=True))
+
+    def test_unresolved_or_operational_failure_preserves_fsck_diagnostics(self):
+        for codes in ((2,), (4,), (5,), (8,), (1, 4)):
+            with self.subTest(codes=codes), self.assertRaisesRegex(Error, "inode diagnostic") as exc:
+                self.fsck(*codes).check_partition("part", Path("."), prepare=True)
+            self.assertIn("tool version", str(exc.exception))
+
+    def test_final_check_never_repairs_a_modified_partition(self):
+        tools = self.fsck(4)
+        with self.assertRaises(Error):
+            tools.check_partition("part", Path("."))
+        self.assertEqual([c.args[1][0] for c in tools.call.call_args_list], ["-fn"])
+
     def test_partition_bounds_are_bytes_and_bounded(self):
         self.assertEqual(partition_bounds(mbr(), 2685403136), (1048576, 2147483648))
         with self.assertRaises(Error):

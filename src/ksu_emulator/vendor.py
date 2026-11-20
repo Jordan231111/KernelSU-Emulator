@@ -134,7 +134,7 @@ def clean_vendor_root(mumu: MuMu, index: int, profile_id: str = PROFILE_ID,
                         output.write(block)
                         remaining -= len(block)
             argument = tools.path(part, work)
-            tools.call("e2fsck", ["-fn", argument], work)
+            record["filesystem_repaired"] = tools.check_partition(argument, work, prepare=True)
 
             def debug(command, write=False):
                 return tools.call("debugfs", (["-w"] if write else []) + ["-R", command, argument], work)
@@ -207,7 +207,7 @@ def clean_vendor_root(mumu: MuMu, index: int, profile_id: str = PROFILE_ID,
                 debug("rm " + path, True)
                 if inode(path)[0] is not None:
                     raise Error("Vendor helper was not removed: " + path)
-            tools.call("e2fsck", ["-fn", argument], work)
+            tools.check_partition(argument, work)
             if part.stat().st_size != size:
                 raise Error("Filesystem size changed unexpectedly")
             with raw.open("r+b") as destination, part.open("rb") as source:

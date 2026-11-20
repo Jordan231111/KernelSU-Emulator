@@ -143,6 +143,10 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> di
     installed_recipe = state.get("recipe_sha256")
     result["recipe_matches"] = (installed_recipe == current_recipe or
                                 spec.get("equivalent_recipes", {}).get(installed_recipe) == current_recipe)
+    receipt = adb.su("if [ -f /system/etc/ksu-mumu-policy/offline-labels.sha256 ]; then "
+                     "cat /system/etc/ksu-mumu-policy/offline-labels.sha256; fi")
+    result["offline_labels_verified"] = receipt == current_recipe or (
+        spec.get("equivalent_recipes", {}).get(receipt) == current_recipe)
     expected = {item["path"]: item["after_sha256"] for item in spec["files"]}
     expected.update({item["path"]: item["after_sha256"]
                      for item in spec.get("binary_repairs", [])})
@@ -167,6 +171,8 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> di
     result["core_services_running"] = len(states) == len(services) and all(value == "running" for value in states)
     result["verified"] = all((result["verified"], result["recipe_matches"], result["installed_files_match"],
                               result["critical_labels_match"], result["init_domain_correct"], result["core_services_running"]))
+    if state.get("schema") == 2:
+        result["verified"] &= result["offline_labels_verified"]
     return result
 
 
@@ -193,6 +199,8 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
         if susfs_manifest["specification"]["status"] != "verified" and not experimental:
             raise Error("Candidate SUSFS requires --experimental")
     digest = recipe_hash(spec)
+    mumu.validate_app(profile)
+    mumu.start(target)
     if not verify(mumu, target, root=True, profile_id=profile["id"])["persistent_install_ready"]:
         raise Error("Hardening requires a verified base and authorized Shell")
     adb = mumu.connect(target)
@@ -201,11 +209,21 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
         if adb.su("sha256sum " + remote).split()[0] != core["files"][name]:
             raise Error("Installed core differs from the selected bundle: " + name)
     if adb.su("if [ -e /system/etc/ksu-mumu-policy/state.json ]; then echo installed; fi"):
+        current = verify_hardening(mumu, target, profile["id"])
+        if not current["installed_files_match"] or not current["recipe_matches"]:
+            raise Error("Installed hardening files differ from the selected recipe")
+        resumed = None
+        if not current["offline_labels_verified"]:
+            ext4 = Ext4Tools()
+            print("Checking offline labels and recording the verified recipe...", flush=True)
+            mumu.stop(target)
+            resumed = relabel_system(mumu, target, spec["offline_label_trees"], digest, ext4)
+            mumu.start(target)
         result = wait_hardening(mumu, target, profile["id"])
-        if not result["verified"]:
+        if not result["verified"] or not result["offline_labels_verified"]:
             raise Error("The existing hardening recipe differs or is unhealthy; this installer requires a clean base")
         susfs = install_susfs(mumu, target, susfs_bundle, experimental) if susfs_bundle else None
-        return {"instance": target, "already_hardened": True, "hardening": result, "susfs": susfs}
+        return {"instance": target, "already_hardened": True, "offline_labels": resumed, "hardening": result, "susfs": susfs}
     ext4 = Ext4Tools()  # Check prerequisites before stopping an instance.
     if not shutil.which("patch"):
         raise Error("The patch utility is required")
@@ -277,6 +295,16 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
                 raise Error("Compiled policy differs from the independently inspected result")
             replacements[spec["policy_path"]] = compiled
             adb.su(f"{stage}/policy-tool --live --apply {stage}/policy.rules")
+            # Replacing an executable still mapped by its daemon leaves an unlinked
+            # inode on MuMu's journal-free system partition when the VM closes.
+            for item in spec.get("binary_repairs", []):
+                service = item["service"]
+                adb.su("setprop ctl.stop " + service)
+                deadline = time.monotonic() + 15
+                while adb.su("getprop init.svc." + service) != "stopped":
+                    if time.monotonic() >= deadline:
+                        raise Error(f"MuMu did not stop {service} before its executable replacement")
+                    time.sleep(0.25)
             adb.su("mount -o remount,rw /system; mkdir -p /system/etc/ksu-mumu-policy")
 
             def install_file(path: str, data: bytes, mode: str = "0644"):
@@ -300,7 +328,7 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
                 if name.endswith(".rc"):
                     continue  # Publish the boot action last.
                 install_file("/system/etc/ksu-mumu-policy/" + name, repository_file(source).read_bytes(), "0755")
-            state = {"schema": 1, "recipe_sha256": digest, "profile": profile["id"],
+            state = {"schema": 2, "recipe_sha256": digest, "profile": profile["id"],
                      "installed": {path: hashlib.sha256(data).hexdigest() for path, data in replacements.items()}}
             install_file("/system/etc/ksu-mumu-policy/state.json", (json.dumps(state, indent=2) + "\n").encode())
             install_file("/system/etc/init/ksu-mumu-policy.rc", repository_file(spec["boot_files"]["ksu-mumu-policy.rc"]).read_bytes())
@@ -309,7 +337,7 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
             record["phase"] = "guest-files-prepared"
             save_json(record_path, record)
             mumu.stop(target)
-            record["offline_labels"] = relabel_system(mumu, target, spec["offline_label_trees"], ext4)
+            record["offline_labels"] = relabel_system(mumu, target, spec["offline_label_trees"], digest, ext4)
             record["phase"] = "disk-labeled"
             save_json(record_path, record)
         mumu.start(target)
