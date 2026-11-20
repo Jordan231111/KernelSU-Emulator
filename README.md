@@ -4,25 +4,28 @@ Install KernelSU Next and the MuMu SUSFS port on **MuMuPlayer Pro 1.9.2 for Appl
 
 The installer uses MuMu's original kernel and the selected instance's private system disk. Other MuMu builds and Windows are unsupported.
 
-## Build this checkout
+## Download
 
-The main branch includes the Disk Cleanup repair and current MuMu compatibility
-updates. The published v1.0.6 archive predates them. Build matching bundles from
-this checkout:
+Download `KernelSU-Emulator-v1.1.0-mumu-pro-1.9.2-arm64.zip` and
+`SHA256SUMS-v1.1.0.txt` from the [latest release](https://github.com/Jordan231111/KernelSU-Emulator/releases/latest).
+Verify the archive before extracting:
 
 ```sh
-python3 ksu.py build --output out/core
-python3 ksu.py build-susfs --output out/susfs
+shasum -a 256 -c SHA256SUMS-v1.1.0.txt
 ```
+
+The complete ZIP contains the installer, matching prebuilt `out/core/` and
+`out/susfs/` bundles, corresponding source archives, and licenses. Docker is not
+needed to install the release. To build your own bundles, follow [Building](docs/BUILDING.md).
 
 Requirements:
 
 - macOS on Apple Silicon and MuMuPlayer Pro **1.9.2**.
 - Python **3.11.8 or later** and Android Platform Tools (`adb`).
 - For fresh installation: `qemu-img` and `e2fsprogs` (`brew install qemu e2fsprogs`).
-- Keep the MuMu launcher open. Docker builds the bundles above.
+- Keep the MuMu launcher open. Docker is needed only to build from source.
 
-Open Terminal in this repository. Run `python3 ksu.py list` and replace `0` below with your intended instance index. Close games before commands that stop or restart an instance.
+Open Terminal in the extracted folder. Run `python3 ksu.py list` and replace `0` below with your intended instance index. Close games before commands that stop or restart an instance.
 
 ## Fresh installation
 
