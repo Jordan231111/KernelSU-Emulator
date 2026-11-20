@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shlex
 import sys
 import tempfile
 import uuid
 import zipfile
 from pathlib import Path
+
+from android_sdk import sdk_package
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -19,9 +20,8 @@ from ksu_emulator.mumu import MuMu
 
 def qualify(instance: int, codec: str = "c2.android.avc.decoder", encoder: str = "libx264",
             size: str = "1168x544", repeats: int = 1) -> dict:
-    sdk = Path(os.environ.get("ANDROID_SDK_ROOT", str(Path.home() / "Library/Android/sdk")))
-    api = sdk / "platforms" / os.environ.get("ANDROID_PLATFORM", "android-35") / "android.jar"
-    d8 = sdk / "build-tools" / os.environ.get("ANDROID_BUILD_TOOLS", "35.0.0") / "d8"
+    api = sdk_package("platform") / "android.jar"
+    d8 = sdk_package("build-tools") / "d8"
     adb = MuMu().connect(instance)
     boot = adb.shell("cat /proc/sys/kernel/random/boot_id")
     stage = "/data/local/tmp/ksu-codec-" + uuid.uuid4().hex

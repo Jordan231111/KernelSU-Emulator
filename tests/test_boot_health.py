@@ -8,9 +8,30 @@ from unittest.mock import Mock, patch
 
 from src.ksu_emulator.common import ROOT
 from src.ksu_emulator.hardening import wait_hardening
+from src.ksu_emulator.susfs import verify_susfs
 
 
 class BootHealthTests(unittest.TestCase):
+    def test_susfs_fallback_overrides_a_ready_property(self):
+        mumu = Mock()
+        adb = mumu.connect.return_value
+        adb.shell.side_effect = ["1", "previous-boot"]
+        result = verify_susfs(mumu, 0)
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["behavior_tested"])
+        self.assertEqual(result["fallback"], "previous-boot")
+        adb.su.assert_not_called()
+
+    def test_susfs_can_report_a_live_engine_before_configuration_finishes(self):
+        mumu = Mock()
+        adb = mumu.connect.return_value
+        adb.shell.side_effect = ["0", ""]
+        adb.su.side_effect = ["v2.3.0", "NON-GKI", "feature", "counter=3"]
+        result = verify_susfs(mumu, 0)
+        self.assertEqual(result["path_counters"], "counter=3")
+        self.assertEqual(result["version"], "v2.3.0")
+        self.assertFalse(result["verified"])
+
     def test_boot_completed_does_not_bypass_service_stability(self):
         booting = {"verified": False, "fallback": None}
         healthy = {"verified": True, "fallback": None}

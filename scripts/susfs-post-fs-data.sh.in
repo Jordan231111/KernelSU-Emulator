@@ -34,6 +34,12 @@ echo 'add kernelsu' >/proc/susfs_hide_modules
 for path in /data/adb /system/etc/ksu-emulator /system/etc/init/ksu-emulator.rc /system/etc/ksu-mumu-policy /system/etc/init/ksu-mumu-policy.rc; do
     if [ -e "$path" ]; then echo "add $path" >/proc/susfs_path; fi
 done
+# Init creates this socket after post-fs-data. Keep following its inode across
+# service restarts so ordinary apps cannot use its name as an existence probe.
+"$MODDIR/ksu_susfs" add_sus_path_loop /dev/socket/mumu_disk_cleanup
 "$MODDIR/susfs-sc" 0x55561 0100000000000000
+# Keep the root manager's UID out of other apps' priority-based enumeration.
+# The engine refreshes package UIDs after package changes and app specialization.
+"$MODDIR/ksu_susfs" set_priority_uid_filter '@KSU_PACKAGE@'
 setprop sys.ksu_mumu.susfs_ready 1
 echo 'MuMu SUSFS ready'

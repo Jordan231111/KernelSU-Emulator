@@ -1,0 +1,13 @@
+diff --git a/src/agent/lib/info/index.ts b/src/agent/lib/info/index.ts
+index 8f48088..2222065 100644
+--- a/src/agent/lib/info/index.ts
++++ b/src/agent/lib/info/index.ts
+@@ -40,7 +40,7 @@ export async function dumpInfo() {
+ 
+ export async function dumpInfoR2() {
+     const properties: any = await dumpInfoJson();
+-    const jnienv = properties.jniEnv !== undefined ? properties.jniEnv : "";
++    const jnienv = properties.jniEnv !== undefined ? "\nf r2f.jnienv=" + properties.jniEnv : "";
+     return [
+         "e asm.arch=" + properties.arch,
+         "e asm.bits=" + properties.bits,

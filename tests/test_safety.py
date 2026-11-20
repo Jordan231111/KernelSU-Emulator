@@ -1,4 +1,5 @@
 import io
+import hashlib
 import struct
 import tarfile
 import tempfile
@@ -7,9 +8,9 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from src.ksu_emulator.build import extract_source
-from src.ksu_emulator.bundle import validate_bundle
+from src.ksu_emulator.bundle import validate_bundle, verify_recipe
 from src.ksu_emulator.common import Error, load_profile, save_json
-from src.ksu_emulator.elf import module_info
+from src.ksu_emulator.elf import module_info, verify_imports
 from src.ksu_emulator.install import install
 from src.ksu_emulator.mumu import MuMu
 from src.ksu_emulator.probe import validate_guest
@@ -44,6 +45,16 @@ class ElfTests(unittest.TestCase):
         self.assertEqual(info["undefined_symbols"], ["missing_function"])
         self.assertEqual(info["name"], "kernelsu")
 
+    def test_linked_module_must_match_measured_imports(self):
+        info = module_info(elf_fixture())
+        with tempfile.TemporaryDirectory() as temp:
+            inventory = Path(temp) / "symbols"
+            inventory.write_text("missing_function\n")
+            verify_imports(info, inventory)
+            inventory.write_text("other_function\n")
+            with self.assertRaisesRegex(Error, "missing_function"):
+                verify_imports(info, inventory)
+
     def test_rejects_wrong_architecture(self):
         with self.assertRaises(Error):
             module_info(elf_fixture(architecture=62))
@@ -65,7 +76,7 @@ class GuardTests(unittest.TestCase):
         profile = load_profile()
         evidence = {**profile, "adb_uid": "0", "config": {"CONFIG_MODULES": "y"}}
         validate_guest(evidence, profile)
-        for key in ("kernel_release", "kernel_version", "architecture", "android_version", "config_gz_sha256"):
+        for key in ("kernel_release", "kernel_version", "architecture", "android_version", "config_gz_sha256", "vendor_module_sha256"):
             with self.subTest(key=key), self.assertRaises(Error):
                 validate_guest({**evidence, key: "different"}, profile)
 
@@ -105,6 +116,21 @@ class GuardTests(unittest.TestCase):
             with self.assertRaises(tarfile.FilterError):
                 extract_source(archive, path / "dest")
             self.assertFalse((path / "escaped").exists())
+
+    def test_archived_recipe_must_match_its_manifest(self):
+        data = b"original build configuration"
+        name = "kernel.config"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "recipe.tar.gz"
+            with tarfile.open(path, "w:gz") as archive:
+                item = tarfile.TarInfo(name)
+                item.size = len(data)
+                archive.addfile(item, io.BytesIO(data))
+            verify_recipe(path, {name: hashlib.sha256(data).hexdigest()}, (name,))
+            with self.assertRaises(Error):
+                verify_recipe(path, {name: "0" * 64}, (name,))
+            with self.assertRaises(Error):
+                verify_recipe(path, {"missing": "0" * 64}, ("missing",))
 
 
 if __name__ == "__main__":

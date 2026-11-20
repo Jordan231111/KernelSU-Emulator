@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 from .build import download
-from .common import ROOT, Error, load_profile, save_json, sha256
+from .common import ROOT, Error, load_profile, run, save_json, sha256
 from .profiles import ID_PATTERN, build_settings, repository_file, validate_profile
 from .maintenance import copy_extensions
 
@@ -37,6 +37,12 @@ def github(repo: str, suffix: str = "") -> dict:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
+        # Reuse the user's authenticated GitHub CLI when anonymous API access
+        # is rate-limited; credentials remain inside gh's credential store.
+        if exc.code in {401, 403, 429} and shutil.which("gh"):
+            result = run(["gh", "api", f"repos/{repo}{suffix}"], timeout=30, check=False)
+            if result.returncode == 0:
+                return json.loads(result.stdout)
         raise Error(f"GitHub returned HTTP {exc.code} for {repo}{suffix}; check the ref, access and API rate limit") from exc
 
 
@@ -53,7 +59,7 @@ def updates(profile_id: str) -> dict:
             "pinned_manager_tag": profile["ksu_tag"], "latest_manager_tag": release["tag_name"],
             "manager_changed": release["tag_name"] != profile["ksu_tag"],
             "release_url": release["html_url"], "published_at": release.get("published_at"),
-            "next_step": "Use prepare-framework with explicit refs, then preflight, build and qualify a fresh lab. No update was installed."}
+            "next_step": "Use prepare-framework with explicit refs, then preflight, build and qualify the selected instance. No update was installed."}
     extension = ROOT / "profiles" / profile_id / "susfs.json"
     if extension.is_file():
         spec = json.loads(extension.read_text())
@@ -154,4 +160,4 @@ def prepare_framework(base_id: str, new_id: str, kernel_ref: str, manager_tag: s
         raise
     return {"profile": new_id, "status": "candidate", "kernel_commit": commit, "manager_tag": manager_tag,
             "uapi_version": candidate["build"]["uapi_version"],
-            "next_step": "Review manager identity, run preflight and build, then qualify a fresh labd instance before promotion"}
+            "next_step": "Review manager identity, run preflight and build, then qualify the selected instance before promotion"}

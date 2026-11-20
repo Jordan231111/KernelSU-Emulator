@@ -1,0 +1,274 @@
+diff --git a/compat/CMakeLists.txt b/compat/CMakeLists.txt
+new file mode 100644
+index 0000000..678ef48
+--- /dev/null
++++ b/compat/CMakeLists.txt
+@@ -0,0 +1,28 @@
++cmake_minimum_required(VERSION 3.22.1)
++project(neo_frida_compat)
++set(CMAKE_CXX_STANDARD 23)
++add_compile_options(
++    -Wall -Wextra -Wno-builtin-macro-redefined
++    -fno-exceptions -fno-rtti -fno-stack-protector -fomit-frame-pointer
++    -ffunction-sections -fdata-sections -Oz -flto
++    -fvisibility=hidden -fvisibility-inlines-hidden
++    -fno-unwind-tables -fno-asynchronous-unwind-tables
++)
++add_compile_definitions(WORK_DIRECTORY="/data/system/neozygisk" __FILE__=__FILE_NAME__)
++add_link_options(-flto -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,--strip-all)
++add_subdirectory(../loader/src loader)
++
++add_executable(cleanup_test cleanup_test.cpp ../loader/src/injector/clean.cpp)
++target_include_directories(cleanup_test PRIVATE ../loader/src/include ../loader/src/injector)
++target_compile_options(cleanup_test PRIVATE -Wno-invalid-offsetof -Wno-unused-private-field)
++target_link_libraries(cleanup_test lsplt_static log)
++target_link_options(cleanup_test PRIVATE -Wl,--wrap=mremap)
++
++# Optional negative control: compile the same regression against a previous cleanup source.
++if(DEFINED NEO_COMPAT_BASELINE_SOURCE)
++    add_executable(cleanup_test_before cleanup_test.cpp "${NEO_COMPAT_BASELINE_SOURCE}")
++    target_include_directories(cleanup_test_before PRIVATE ../loader/src/include ../loader/src/injector)
++    target_compile_options(cleanup_test_before PRIVATE -Wno-unused-private-field)
++    target_link_libraries(cleanup_test_before lsplt_static log)
++    target_link_options(cleanup_test_before PRIVATE -Wl,--wrap=mremap)
++endif()
+diff --git a/compat/build.sh b/compat/build.sh
+new file mode 100755
+index 0000000..ee15fc6
+--- /dev/null
++++ b/compat/build.sh
+@@ -0,0 +1,17 @@
++#!/usr/bin/env bash
++set -euo pipefail
++repo=$(cd "$(dirname "$0")/.." && pwd)
++ndk=${ANDROID_NDK_ROOT:-"$HOME/Library/Android/sdk/ndk/27.2.12479018"}
++revision=$(git -C "$repo" rev-parse --short=7 HEAD)
++version=${NEOZYGISK_COMPAT_VERSION:-"v2.4-298-$revision-frida-compat-release"}
++if ! grep -Eq '^Pkg.Revision[[:space:]]*=[[:space:]]*27\.2\.12479018[[:space:]]*$' "$ndk/source.properties"; then
++    echo 'This compatibility build requires Android NDK 27.2.12479018.' >&2
++    exit 1
++fi
++cmake -S "$repo/compat" -B "$repo/build/compat-release" -G Ninja \
++    -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
++    -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
++    -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
++    -DZKSU_VERSION="$version"
++cmake --build "$repo/build/compat-release" --target zygisk cleanup_test -j "${NEOZYGISK_BUILD_JOBS:-6}"
++cp "$repo/build/compat-release/loader/libzygisk.so" "$repo/libzygisk.so"
+diff --git a/compat/cleanup_test.cpp b/compat/cleanup_test.cpp
+new file mode 100644
+index 0000000..5367bc0
+--- /dev/null
++++ b/compat/cleanup_test.cpp
+@@ -0,0 +1,124 @@
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <sys/prctl.h>
++#include <unistd.h>
++
++#include <cstdarg>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <string>
++#include <lsplt.hpp>
++
++void spoof_virtual_maps(const char *, bool);
++
++static void *named_map(const char *directory, const char *name, int protection, size_t size) {
++    const std::string path = std::string(directory) + "/" + std::to_string(getpid()) + "-" + name;
++    const int fd = open(path.c_str(), O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC, 0600);
++    if (fd < 0 || ftruncate(fd, size)) {
++        perror("test file");
++        exit(2);
++    }
++    void *result = mmap(nullptr, size, protection, MAP_PRIVATE, fd, 0);
++    close(fd);
++    unlink(path.c_str());
++    if (result == MAP_FAILED) {
++        perror("mmap");
++        exit(2);
++    }
++    memcpy(result, "compat-marker", 14);
++    return result;
++}
++
++static int protection(void *address) {
++    for (const auto &map : lsplt::MapInfo::Scan()) {
++        if (map.start <= reinterpret_cast<uintptr_t>(address) &&
++            reinterpret_cast<uintptr_t>(address) < map.end) {
++            return map.perms;
++        }
++    }
++    return -1;
++}
++
++static void *watched_code;
++static void *reused_source;
++static unsigned live_code_checks;
++
++extern "C" void *__real_mremap(void *, size_t, size_t, int, ...);
++extern "C" void *__wrap_mremap(void *old_address, size_t old_size, size_t new_size, int flags, ...) {
++    void *new_address = nullptr;
++    if (flags & MREMAP_FIXED) {
++        va_list arguments;
++        va_start(arguments, flags);
++        new_address = va_arg(arguments, void *);
++        va_end(arguments);
++    }
++    void *result = __real_mremap(old_address, old_size, new_size, flags, new_address);
++    if (result == MAP_FAILED || !watched_code || result != watched_code) return result;
++
++    // Reserve the just-freed address before the protection scanner can allocate anything.
++    reused_source = mmap(old_address, old_size, PROT_READ | PROT_WRITE,
++            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
++    if (reused_source == MAP_FAILED || reused_source != old_address) {
++        perror("reuse released source range");
++        exit(22);
++    }
++    memcpy(reused_source, "reused-source", 14);
++
++    // This runs before the production cleanup can repair permissions after mremap.
++    if ((protection(result) & (PROT_READ | PROT_EXEC)) != (PROT_READ | PROT_EXEC)) {
++        fputs("FAIL: live executable mapping lost read/execute permission during replacement\n", stderr);
++        exit(20);
++    }
++    if (reinterpret_cast<int (*)()>(result)() != 42) {
++        fputs("FAIL: remapped code or instruction-cache state changed\n", stderr);
++        exit(21);
++    }
++    ++live_code_checks;
++
++    // A second munmap(copy, size) in the production cleanup would remove the reused range.
++    return result;
++}
++
++int main(int argc, char **argv) {
++    if (argc != 2) return 2;
++    const size_t size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
++    const int rw = PROT_READ | PROT_WRITE;
++    const int rwx = rw | PROT_EXEC;
++    void *unrelated = named_map(argv[1], "unrelated", rwx, size);
++    void *first_target = named_map(argv[1], "selected-first", rwx, size);
++    void *read_write = named_map(argv[1], "selected-rw", rw, size);
++    void *anonymous = mmap(nullptr, size, rwx, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++    if (anonymous == MAP_FAILED) return 2;
++    if (prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, anonymous, size, "frida-owned-code-cache")) return 13;
++
++    spoof_virtual_maps("-selected-", false);
++    if (protection(first_target) != rwx || protection(unrelated) != rwx) return 3;
++
++    void *target = named_map(argv[1], "selected-second", rwx, size);
++    void *code = named_map(argv[1], "selected-code", rwx, size);
++    const uint32_t instructions[]{0x52800540, 0xd65f03c0}; // ARM64: return 42.
++    memcpy(code, instructions, sizeof(instructions));
++    __builtin___clear_cache(static_cast<char *>(code), static_cast<char *>(code) + sizeof(instructions));
++    if (mprotect(code, size, PROT_READ | PROT_EXEC)) return 14;
++    watched_code = code;
++    spoof_virtual_maps("-selected-", true);
++    watched_code = nullptr;
++    if (live_code_checks != 1 || protection(reused_source) != rw ||
++            memcmp(reused_source, "reused-source", 14)) return 23;
++    if (reinterpret_cast<int (*)()>(code)() != 42) return 24;
++    if (protection(unrelated) != rwx || protection(anonymous) != rwx) {
++        fputs("FAIL: unrelated mutable mappings lost write permission\n", stderr);
++        return 10;
++    }
++    if (protection(target) != (PROT_READ | PROT_EXEC) || protection(read_write) != rw) return 11;
++    if (memcmp(target, "compat-marker", 14) || memcmp(read_write, "compat-marker", 14)) return 12;
++
++    // Exercise the same kind of mutable-state write that failed in Frida's Zymbiote page.
++    *reinterpret_cast<volatile uintptr_t *>(static_cast<char *>(unrelated) + 0x18) = 0;
++    for (void *address : {unrelated, first_target, read_write, target, anonymous, code, reused_source})
++        munmap(address, size);
++    puts("PASS: live code stayed executable; reused source survived; unrelated mutable mappings preserved");
++    return 0;
++}
+diff --git a/compat/test.sh b/compat/test.sh
+new file mode 100755
+index 0000000..69e18b9
+--- /dev/null
++++ b/compat/test.sh
+@@ -0,0 +1,14 @@
++#!/usr/bin/env bash
++set -euo pipefail
++repo=$(cd "$(dirname "$0")/.." && pwd)
++serial=${1:?Usage: compat/test.sh ADB_SERIAL}
++binary="$repo/build/compat-release/cleanup_test"
++[ -f "$binary" ] || { echo 'Run compat/build.sh first.' >&2; exit 1; }
++stage="/data/local/tmp/neo-compat-test-$$-$RANDOM"
++cleanup() {
++    adb -s "$serial" shell "su -c 'rm -rf $stage'" >/dev/null 2>&1 || true
++}
++trap cleanup EXIT
++adb -s "$serial" shell "mkdir '$stage'"
++adb -s "$serial" push "$binary" "$stage/cleanup_test"
++adb -s "$serial" shell "su -c 'chmod 755 $stage/cleanup_test && $stage/cleanup_test $stage'"
+diff --git a/loader/src/injector/clean.cpp b/loader/src/injector/clean.cpp
+index dee03eb..1d2c11a 100644
+--- a/loader/src/injector/clean.cpp
++++ b/loader/src/injector/clean.cpp
+@@ -43,34 +43,48 @@ void spoof_virtual_maps(const char *path, bool clear_write_permission) {
+         void *addr = (void *) map.start;
+         size_t size = map.end - map.start;
+ 
+-        if (strstr(map.path.c_str(), path)) {
++        const bool target_mapping = strstr(map.path.c_str(), path) != nullptr;
++        if (target_mapping) {
+             LOGV("spoofing entry path contaning string %s", map.path.c_str());
+             // Create an anonymous mapping to hold a copy of the original data
+-            void *copy = mmap(nullptr, size, PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
++            void *copy =
++                mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+             if (copy == MAP_FAILED) {
+                 LOGE("failed to backup block %s [%p, %p]", map.path.c_str(), addr,
+                      (void *) map.end);
+                 continue;
+             }
+-            // Ensure the original mapping is readable before copying
+-            if ((map.perms & PROT_READ) == 0) {
+-                mprotect(addr, size, PROT_READ);
++            // A live executable segment must retain execute permission while it is read.
++            const bool widened = (map.perms & PROT_READ) == 0;
++            if (widened && mprotect(addr, size, map.perms | PROT_READ) == -1) {
++                PLOGE("make %s readable [%p, %p]", map.path.c_str(), addr, (void *) map.end);
++                munmap(copy, size);
++                continue;
+             }
+             memcpy(copy, addr, size);
+-            // Overwrite the original mapping with our anonymous copy
++            if (widened) mprotect(addr, size, map.perms);
++            if (map.perms & PROT_EXEC) {
++                __builtin___clear_cache(static_cast<char *>(copy),
++                                        static_cast<char *>(copy) + size);
++            }
++            // mremap carries these permissions to the live address. Set them before the swap:
++            // even the mprotect used to repair a live page may itself have been intercepted.
++            if (map.perms != (PROT_READ | PROT_WRITE) && mprotect(copy, size, map.perms) == -1) {
++                PLOGE("set permissions on the copy of %s", map.path.c_str());
++                munmap(copy, size);
++                continue;
++            }
+             if (mremap(copy, size, size, MREMAP_MAYMOVE | MREMAP_FIXED, addr) == MAP_FAILED) {
+-                LOGE("mremap failed for %s [%p, %p]", map.path.c_str(), addr, (void *) map.end);
++                PLOGE("mremap failed for %s [%p, %p]", map.path.c_str(), addr, (void *) map.end);
++                munmap(copy, size);
++                continue;
+             }
+-            // The backup copy is now at the original address, we can unmap our temporary one.
+-            // Note: The man page for mremap is ambiguous on whether the old mapping at 'copy'
+-            // is unmapped. To be safe and avoid potential leaks, we explicitly unmap it.
+-            munmap(copy, size);
+-            // Restore the original permissions
+-            mprotect(addr, size, map.perms);
++            // A successful MREMAP_FIXED has already unmapped the old source range.
+             prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, addr, size, "dalvik-DEX data");
+         }
+ 
+-        if (clear_write_permission && map.path.size() > 0 &&
++        // Preserve mutable state owned by other instrumentation.
++        if (clear_write_permission && target_mapping && !map.path.empty() && map.path[0] != '[' &&
+             (map.perms & (PROT_READ | PROT_WRITE | PROT_EXEC)) ==
+                 (PROT_READ | PROT_WRITE | PROT_EXEC)) {
+             LOGV("clearing write permission for entry %s", map.path.c_str());

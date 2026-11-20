@@ -11,6 +11,7 @@ sha256sum -c payload.sha256 || abort 'Module payload integrity check failed'
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/susfs-sc" 0 0 0755
+set_perm "$MODPATH/ksu_susfs" 0 0 0755
 set_perm "$MODPATH/boot-completed.sh" 0 0 0755
 /data/adb/ksud susfs autoload disable || abort 'Cannot disable the incompatible bundled GKI loader'
 rm -f /data/adb/ksu-emulator/susfs-pending

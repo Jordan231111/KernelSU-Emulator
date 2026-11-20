@@ -115,7 +115,7 @@ def compare_capture(report: dict, profile: dict) -> dict:
     return {"profile": profile["id"], "classification": classification, "changes": changes,
             "reuse_build_candidate": not missing_reference and not kernel_changed and not driver_changed,
             "required_next_step": "Measure ABI and audit symbols before building" if kernel_changed or driver_changed else
-            "Qualify a fresh lab before promoting a new app version; matching kernel files do not prove boot compatibility"}
+            "Qualify the selected instance before promoting a new app version; matching kernel files do not prove boot compatibility"}
 
 
 def create_candidate(base_id: str, capture_path: Path, new_id: str) -> dict:
@@ -193,28 +193,13 @@ def patch_preflight(profile_id: str) -> dict:
             destination = work / name
             extract_source(archive, destination)
             for patch in settings[key]:
-                args = ["patch", "--batch", "--fuzz=0", "-p1", "-d", destination, "--input", repository_file(patch)]
+                args = ["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-d", destination, "--input", repository_file(patch)]
                 result = run([*args, "--dry-run"], check=False)
                 passed = result.returncode == 0
-                results.append({"patch": patch, "applies": passed, "output": result.stdout.decode(errors="replace").strip()})
+                diagnostics = b"\n".join(part for part in (result.stdout, result.stderr) if part)
+                results.append({"patch": patch, "applies": passed, "output": diagnostics.decode(errors="replace").strip()})
                 if not passed:
                     return {"profile": profile_id, "passed": False, "patches": results}
                 run(args)  # Later patches may depend on earlier ones; only the temporary tree changes.
     return {"profile": profile_id, "status": status(profile), "passed": True, "patches": results,
             "note": "Clean patch application is not a kernel ABI or runtime compatibility guarantee"}
-
-
-def register_lab(mumu: MuMu, device: dict, source_index: int | None = None) -> dict:
-    record = {"index": device["index"], "bundle_path": str(Path(device["bundle_path"]).resolve()), "source_index": source_index}
-    save_json(ROOT / "out/labs" / f"{device['index']}.json", record)
-    return device
-
-
-def require_lab(mumu: MuMu, index: int) -> dict:
-    path = ROOT / "out/labs" / f"{index}.json"
-    if not path.is_file():
-        raise Error("Candidate testing requires an instance made by create-lab")
-    record = json.loads(path.read_text())
-    if record.get("index") != index or record.get("bundle_path") != str(Path(mumu.info(index)["bundle_path"]).resolve()):
-        raise Error("Laboratory instance identity changed")
-    return record

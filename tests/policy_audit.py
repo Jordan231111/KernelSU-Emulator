@@ -9,10 +9,12 @@ def compare(before_path, after_path):
     after = setools.SELinuxPolicy(after_path)
     old_permissive = sorted(str(t) for t in before.types() if t.ispermissive)
     new_permissive = sorted(str(t) for t in after.types() if t.ispermissive)
-    assert old_permissive == new_permissive, "Permissive domains changed"
+    if old_permissive != new_permissive:
+        raise ValueError("Permissive domains changed")
     old_types = {str(t): sorted(str(a) for a in t.attributes()) for t in before.types()}
     new_types = {str(t): sorted(str(a) for a in t.attributes()) for t in after.types()}
-    assert old_types == new_types, "Type attributes changed"
+    if old_types != new_types:
+        raise ValueError("Type attributes changed")
     old = {str(rule) for rule in before.terules()}
     new = {str(rule) for rule in after.terules()}
     app_types = ["untrusted_app", "untrusted_app_25", "untrusted_app_27", "untrusted_app_29",
@@ -24,7 +26,8 @@ def compare(before_path, after_path):
             continue
         original = {str(r) for r in setools.TERuleQuery(before, source=domain).results()}
         updated = {str(r) for r in setools.TERuleQuery(after, source=domain).results()}
-        assert original == updated, "App permissions changed: " + domain
+        if original != updated:
+            raise ValueError("App permissions changed: " + domain)
         checked.append(domain)
     return {"permissive_domains_unchanged": True, "permissive_domains": new_permissive,
             "type_attributes_unchanged": True,

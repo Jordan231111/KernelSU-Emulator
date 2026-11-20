@@ -1,6 +1,14 @@
 # Guest qualification
 
-These diagnostics exercise the real emulator and run on an explicitly selected instance with approved Shell root, the matching SUSFS module, and actual SELinux enforcing. They create their own test files and temporary mount; they do not install additional root grants. UID 19999 must be unused. The host harness refuses an occupied package UID.
+Disk Cleanup qualification uses `maintenance_probe.c` (ARM64, built with the
+same static guest compiler as the other native probes) and
+`python3 tests/guest/qualify_disk_cleanup.py --instance 0`. It creates and removes
+only its own files, checks reclaimed host allocation and retained-file hashes,
+and exercises denied identities, unsupported commands, and disconnected clients.
+The actual MuMu Data → Clean button is also tested separately; see
+[the repair evidence](../../docs/DISK-CLEANUP.md).
+
+These diagnostics exercise the real emulator and run on an explicitly selected instance with approved Shell root, the matching SUSFS module, and actual SELinux enforcing. They create their own test files and temporary mount; they do not install additional root grants. The harness checks that its diagnostic UID 19999 is unused.
 
 ## Native probes
 
@@ -10,30 +18,49 @@ Build with the same Docker toolchain used by the project:
 mkdir -p out/guest-tests/native
 docker run --rm -v "$PWD:/repo:ro" -v "$PWD/out/guest-tests/native:/out" \
   ksu-emulator-toolchain:22.04 sh -c '
-  for name in path_probe io_probe mount_probe path_stress; do
+  for name in path_probe io_probe mount_probe path_stress state_probe kstat_stress maintenance_probe mount_lifecycle_probe; do
     aarch64-linux-gnu-gcc-9 -O2 -static -pthread -Wall -Wextra \
       /repo/tests/guest/$name.c -o /out/$name
   done'
-python3 tests/guest/qualify.py --instance 6
+python3 tests/guest/qualify.py --instance 0
 ```
 
 Use the actual instance index. The harness tests protected path access (including `O_PATH` and target aliases), unchanged Unix modes, concurrent path/directory activity, kstat, mapped-file observations, open redirection, bind-mount hiding, fdinfo and 30 new namespaces. It writes a JSON record in `out/guest-tests/` and cold-boots the instance afterward to clear transient map rules. The simulated unprivileged processes use UID 19999, zero effective capabilities and the `untrusted_app` SELinux domain. They complement the real APK test; they do not reproduce every Android zygote/category/profile detail.
 
 The getdents stress has eight path workers and a separate observer reading the output buffer concurrently with directory syscalls. Its result records exactly how much was tested; it is not a claim of exhaustive scheduling coverage.
 
+The kstat stress makes 160,000 stat calls while another thread checks the shared result buffers for the original inode. The public API and edge suites exercise the current Sidex client, filesystem identity, deferred/loop rules, full-clone metadata, map_files, smaps rollup, overlay copy-up views and AVC text separately:
+
+```sh
+python3 tests/guest/qualify_susfs_api.py --instance 0
+python3 tests/guest/qualify_susfs_edges.py --instance 0
+python3 tests/guest/qualify_susfs_uid.py --instance 0
+python3 tests/guest/qualify_mount_lifecycle.py --instance 0
+```
+
+The mount lifecycle suite tests automatic KSU bind tagging, preservation of the
+original filesystem view, FD-first reads in 120 new namespaces, visibility
+off/on, 200 mount/unmount reuse cycles, and 1,100 simultaneous mounts beyond the
+upstream ID cache's capacity. Its native launcher makes a private mount namespace
+before creating mounts, avoiding propagation into Android's normal mount tree.
+It checks lifecycle probe misses, allocation failures, cache saturation and the
+actual FD ID's presence in the app's visible mount table.
+
+The API suite additionally expects an ARM32 `path_probe32` built with the installed NDK; MuMu currently rejects its execution and the report records that result. The UID suite installs its own APK, exercises the canonical v2.4 filters and package removal, then removes it. These suites cold-boot afterward to clear transient rules and spoofed values. They retain JSON evidence in `out/audit/`.
+
 Do not run a previously failed binary repeatedly after a panic. Inspect the host/guest logs and correct the failing hook before another attempt. The harness does not make backups.
 
 ## Real Android application
 
-Install Android SDK platform 35, build-tools 35.0.0 and a JDK. Override `ANDROID_SDK_ROOT`, `ANDROID_PLATFORM` and `ANDROID_BUILD_TOOLS` if needed:
+Install an Android SDK platform, build-tools and a JDK. The diagnostics select the newest installed stable platform and build-tools. Set `ANDROID_SDK_ROOT`, `ANDROID_PLATFORM` or `ANDROID_BUILD_TOOLS` to select a particular installation.
 
 ```sh
 bash tests/guest/build-android.sh
 ```
 
-The resulting `out/guest-tests/android/probe.apk` has a local diagnostic signing key in ignored output storage. Install it only in the lab. Start `io.github.kernelsuemulator.probe/.ProbeActivity`. The app displays and writes `files/report.json` containing UI ticks, touches, sensor events, DNS, an HTTPS request to example.com, muted AudioTrack progress, and a protected-file read result.
+The resulting `out/guest-tests/android/probe.apk` has a local diagnostic signing key in ignored output storage. Install it on the selected instance. Start `io.github.kernelsuemulator.probe/.ProbeActivity`. The app displays and writes `files/report.json` containing UI ticks, touches, sensor events, DNS, an HTTPS request to example.com, muted AudioTrack progress, and a protected-file read result.
 
-Create the canary as root in that lab:
+Create the canary as root on that instance:
 
 ```sh
 printf protected > /data/local/tmp/ksu-selinux-canary
@@ -56,7 +83,7 @@ mkdir -p out/guest-tests/native
 "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang" \
   -O2 -static -Wl,--strip-all -Wall -Wextra tests/guest/selinux_probe.c \
   -o out/guest-tests/native/selinux_probe
-python3 tests/guest/qualify_selinux_hiding.py --instance 4 --leave-on
+python3 tests/guest/qualify_selinux_hiding.py --instance 0 --leave-on
 ```
 
 Use the NDK host directory appropriate to your computer and your explicit instance index. The harness tests hiding On, saved Off after cold boot, and saved On after another cold boot. It checks allowed/invalid/root contexts and an access query from a zero-capability UID 19999 process in the app_zygote domain. A pre-existing memory mapping carries results back because that domain cannot write the root shell's PTY; the tested SELinux interfaces are opened after dropping privileges. This does not grant the probe new policy permissions and does not simulate the entire app-zygote lifecycle.
@@ -96,4 +123,13 @@ After a cold boot with SELinux enforcing, click MuMu's **Recent Apps** toolbar b
 
 Use the native MuMu toolbar for this check. ADB's `KEYCODE_APP_SWITCH` runs in a different domain and does not exercise the bridge's command execution or service lookup.
 
-Remove diagnostic APKs, guest probe files, temporary mounts, and generated `out/guest-tests/` output after testing.
+Remove diagnostic APKs, guest probe files and temporary mounts after testing. Keep the JSON evidence in ignored `out/guest-tests/` and `out/audit/` storage so results remain traceable to the tested binary hashes.
+
+## Existing Frida toolchain
+
+[Frida qualification](../../docs/FRIDA.md) documents the existing 17.26.3 toolchain,
+local compatibility corrections, EC2 results and reproducible commands. Build its
+test-only DEX/library with `bash tests/guest/build-frida-fixtures.sh`. The main,
+CLI, lifecycle, extra and helper suites operate sequentially on their named apps.
+The extra suite deliberately reports the unresolved active-Java/child-gating
+failure; it also tests the passing native-only child-gating sequence.

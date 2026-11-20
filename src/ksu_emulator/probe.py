@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import re
 import shlex
+import zlib
 
 from .common import Error
 from .mumu import Adb
 
+GUEST_FINGERPRINTS = ("kernel_release", "kernel_version", "architecture", "android_version",
+                      "config_gz_sha256", "vendor_module_sha256")
 
 def probe(adb: Adb, root: bool = False) -> dict:
     result = {"serial": adb.serial, "adb_uid": adb.shell("id -u"), "privileged_reads": root}
@@ -40,14 +44,20 @@ def probe(adb: Adb, root: bool = False) -> dict:
             "CONFIG_MODULES", "CONFIG_MODVERSIONS", "CONFIG_MODULE_SIG_FORCE", "CONFIG_KPROBES",
             "CONFIG_KALLSYMS", "CONFIG_RANDOMIZE_BASE", "CONFIG_SECURITY_WRITABLE_HOOKS",
         )}
-    except (Error, ValueError, OSError) as exc:
+    except (Error, EOFError, ValueError, OSError, zlib.error) as exc:
         result["config_error"] = str(exc)
+    release = result["kernel_release"]
+    if re.fullmatch(r"[A-Za-z0-9._+-]+", release):
+        driver = f"/system/lib/modules/{release}/extra/vaddress.ko"
+        digest = read("sha256sum " + driver, check=False).split()
+        if digest and re.fullmatch(r"[0-9a-f]{64}", digest[0]):
+            result["vendor_module_sha256"] = digest[0]
     result["kernel_modules"] = read("cat /proc/modules", check=False)
     return result
 
 
 def validate_guest(evidence: dict, profile: dict, *, require_bootstrap_root: bool = True) -> None:
-    for key in ("kernel_release", "kernel_version", "architecture", "android_version", "config_gz_sha256"):
+    for key in GUEST_FINGERPRINTS:
         if evidence.get(key) != profile[key]:
             raise Error(f"Guest {key} does not match the tested profile: {evidence.get(key)!r}")
     if require_bootstrap_root and evidence["adb_uid"] != "0":

@@ -3,9 +3,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from src.ksu_emulator.bundle import FILES, SYSTEM_FILES
 from src.ksu_emulator.common import Error, load_profile, save_json, sha256
-from src.ksu_emulator.install import install, verify
-from src.ksu_emulator.maintenance import compare_capture, read_capture, require_lab
+from src.ksu_emulator.install import install, upgrade, verify
+from src.ksu_emulator.maintenance import compare_capture, read_capture
 from src.ksu_emulator.profiles import build_settings, validate_profile
 from src.ksu_emulator.upstream import select_manager
 
@@ -45,7 +46,7 @@ class CompatibilityTests(unittest.TestCase):
         with self.assertRaises(Error):
             validate_profile({**self.profile, "id": "new-profile"})
         with self.assertRaises(Error):
-            validate_profile({**self.profile, "id": "new-profile", "schema": 2})
+            validate_profile({**{k: v for k, v in self.profile.items() if k != "build"}, "id": "new-profile", "schema": 2})
 
     def test_capture_detects_changed_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -66,14 +67,70 @@ class CompatibilityTests(unittest.TestCase):
             install(mumu, 2, Path("unused"))
         self.assertFalse(mumu.mock_calls)
 
-    def test_instance_index_reuse_does_not_reuse_lab_permission(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            save_json(root / "out/labs/2.json", {"index": 2, "bundle_path": str(root / "old")})
-            mumu = Mock()
-            mumu.info.return_value = {"bundle_path": str(root / "new")}
-            with patch("src.ksu_emulator.maintenance.ROOT", root), self.assertRaises(Error):
-                require_lab(mumu, 2)
+    def test_repeat_install_checks_every_file_before_changing_instance(self):
+        mumu = Mock()
+        mumu.info.return_value = {"state": "running"}
+        mumu.settings.return_value = {"vmRootEnable": False, "systemFilePermissionType": 1}
+        adb = mumu.start.return_value
+        adb.shell.side_effect = lambda command, **kw: "package:/data/app/manager.apk" if command.startswith("pm path") else "1"
+        paths = ["/system/etc/ksu-emulator/" + name for name in SYSTEM_FILES]
+        paths.extend(["/system/etc/init/ksu-emulator.rc", "/data/app/manager.apk"])
+        digest = "a" * 64
+        adb.call.return_value.returncode = 0
+        adb.call.return_value.stdout = "".join(f"{digest}  {p}\n" for p in paths).encode()
+        manifest = {"profile": self.profile, "files": dict.fromkeys(FILES, digest)}
+        evidence = {"persistent_install_ready": True, "privileged_verification_required": False}
+        with patch("src.ksu_emulator.install.validate_bundle", return_value=manifest), \
+             patch("src.ksu_emulator.install.verify", return_value=evidence) as check:
+            result = install(mumu, 0, Path("unused"))
+            self.assertTrue(result["already_installed"])
+            check.assert_called_once()
+            manifest["files"]["manager.apk"] = "b" * 64
+            with self.assertRaisesRegex(Error, "manager.apk"):
+                install(mumu, 0, Path("unused"))
+        mumu.configure.assert_not_called()
+        mumu.stop.assert_not_called()
+        adb.push.assert_not_called()
+
+    def test_partial_install_is_rejected_before_vendor_root_or_shutdown(self):
+        mumu = Mock()
+        mumu.info.return_value = {"state": "running"}
+        mumu.settings.return_value = {"vmRootEnable": False, "systemFilePermissionType": 1}
+        mumu.start.return_value.shell.side_effect = ["package:/data/app/manager.apk", ""]
+        with patch("src.ksu_emulator.install.validate_bundle", return_value={"profile": self.profile}), \
+             self.assertRaisesRegex(Error, "incomplete"):
+            install(mumu, 0, Path("unused"))
+        mumu.configure.assert_not_called()
+        mumu.stop.assert_not_called()
+
+    def test_upgrade_rejects_changed_driver_before_upload(self):
+        mumu = Mock()
+        mumu.settings.return_value = {"vmRootEnable": False, "systemFilePermissionType": 1}
+        manifest = {"profile": self.profile}
+        with patch("src.ksu_emulator.install.validate_bundle", return_value=manifest), \
+             patch("src.ksu_emulator.install.probe", return_value={**self.profile, "vendor_module_sha256": "changed"}), \
+             self.assertRaisesRegex(Error, "running kernel"):
+            upgrade(mumu, 0, Path("unused"))
+        mumu.connect.return_value.push.assert_not_called()
+        mumu.connect.return_value.su.assert_not_called()
+        mumu.stop.assert_not_called()
+
+    def test_upgrade_rejects_corrupt_upload_before_manager_or_system_write(self):
+        mumu = Mock()
+        mumu.settings.return_value = {"vmRootEnable": False, "systemFilePermissionType": 1}
+        adb = mumu.connect.return_value
+        adb.su.side_effect = lambda command, **kw: "0" if command == "id -u" else ""
+        adb.shell.return_value = "0"
+        manifest = {"profile": self.profile, "files": dict.fromkeys(FILES, "a" * 64)}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("src.ksu_emulator.install.ROOT", Path(tmp)), \
+             patch("src.ksu_emulator.install.validate_bundle", return_value=manifest), \
+             patch("src.ksu_emulator.install.probe", return_value={**self.profile, "installer_ready": "1"}), \
+             self.assertRaisesRegex(Error, "uploaded core"):
+            upgrade(mumu, 0, Path("unused"))
+        adb.call.assert_not_called()
+        self.assertFalse(any("remount" in call.args[0] for call in adb.su.call_args_list))
+        mumu.stop.assert_not_called()
 
     def test_ambiguous_manager_release_requires_explicit_choice(self):
         release = {"assets": [{"name": "one-release.apk"}, {"name": "two-release.apk"}]}
@@ -81,25 +138,80 @@ class CompatibilityTests(unittest.TestCase):
             select_manager(release)
         self.assertEqual(select_manager(release, "two-release.apk")["name"], "two-release.apk")
 
+    def test_upgrade_retries_readonly_remount_when_shutdown_fails(self):
+        mumu = Mock()
+        mumu.settings.return_value = {"vmRootEnable": False, "systemFilePermissionType": 1}
+        mumu.stop.side_effect = Error("shutdown failed")
+        adb = mumu.connect.return_value
+        digest = "a" * 64
+        def su(command, **kw):
+            if command == "id -u":
+                return "0"
+            if command.startswith("sha256sum "):
+                return "\n".join(digest + "  " + path for path in command.split()[1:])
+            return ""
+        adb.su.side_effect = su
+        adb.shell.return_value = "0"
+        manifest = {"profile": self.profile, "files": dict.fromkeys(FILES, digest)}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("src.ksu_emulator.install.ROOT", Path(tmp)), \
+             patch("src.ksu_emulator.install.validate_bundle", return_value=manifest), \
+             patch("src.ksu_emulator.install.probe", return_value={**self.profile, "installer_ready": "1"}), \
+             self.assertRaisesRegex(Error, "shutdown failed"):
+            upgrade(mumu, 0, Path("unused"))
+        remounts = [call for call in adb.su.call_args_list if call.args[0] == "mount -o remount,ro /system"]
+        self.assertEqual(len(remounts), 2)
+
     def test_hidden_module_requires_real_api_evidence(self):
         mumu = Mock()
         adb = mumu.connect.return_value
         evidence = {**self.profile, "kernel_modules": "vaddress 100 0", "installer_ready": "1"}
-        adb.shell.return_value = '{"version":33355,"uapi":5}'
+        adb.shell.side_effect = lambda command: "running" if command.startswith("getprop ") else '{"version":33355,"uapi":5}'
         with patch("src.ksu_emulator.install.probe", return_value=evidence.copy()):
             result = verify(mumu, 2)
         self.assertFalse(result["kernel_module_listed"])
         self.assertTrue(result["persistent_install_ready"])
-        adb.shell.return_value = '{"version":1,"uapi":5}'
+        adb.shell.side_effect = lambda command: "running" if command.startswith("getprop ") else '{"version":1,"uapi":5}'
         with patch("src.ksu_emulator.install.probe", return_value=evidence.copy()):
             self.assertFalse(verify(mumu, 2)["persistent_install_ready"])
 
     def test_fresh_install_does_not_require_pregranting_shell_root(self):
         mumu = Mock()
-        mumu.connect.return_value.shell.side_effect = Error("No control fd for unapproved Shell")
+        def shell(command):
+            if command.startswith("getprop "):
+                return "running"
+            raise Error("No control fd for unapproved Shell")
+        mumu.connect.return_value.shell.side_effect = shell
         evidence = {**self.profile, "kernel_modules": "kernelsu 380928 1 - Live", "installer_ready": "1"}
         with patch("src.ksu_emulator.install.probe", return_value=evidence):
             self.assertTrue(verify(mumu, 2)["persistent_install_ready"])
+
+    def test_failed_cleanup_service_prevents_healthy_install_result(self):
+        mumu = Mock()
+        mumu.connect.return_value.shell.side_effect = lambda command: "restarting" if command.startswith("getprop ") else '{"version":33355,"uapi":5}'
+        evidence = {**self.profile, "kernel_modules": "", "installer_ready": "1"}
+        with patch("src.ksu_emulator.install.probe", return_value=evidence):
+            result = verify(mumu, 2)
+        self.assertFalse(result["disk_cleanup_ready"])
+        self.assertFalse(result["persistent_install_ready"])
+
+    def test_cleanup_process_accepts_proc_nul_and_rejects_extra_capabilities(self):
+        mumu = Mock()
+        adb = mumu.connect.return_value
+        api = '{"version":33355,"uapi":5}'
+        adb.shell.side_effect = lambda command: "running" if command.startswith("getprop ") else api
+        state = ("u:r:mumu_disk_cleanup:s0\0Uid:\t1000\t1000\t1000\t1000\n"
+                 "CapEff:\t0000000000200000\nCapPrm:\t0000000000200000\n"
+                 "CapBnd:\t0000000000200000\nNoNewPrivs:\t1\nSeccomp:\t2\n")
+        evidence = {**self.profile, "kernel_modules": "", "installer_ready": "1"}
+        for process_state, expected in ((state, True),
+                (state.replace("CapEff:\t0000000000200000", "CapEff:\t0000000000200001"), False)):
+            with self.subTest(expected=expected):
+                adb.su.side_effect = ["uid=0(root)\nKernel Version: 33355", api, process_state]
+                with patch("src.ksu_emulator.install.probe", return_value=evidence.copy()):
+                    result = verify(mumu, 2, root=True)
+                self.assertEqual(result["disk_cleanup_ready"], expected)
+                self.assertEqual(result["persistent_install_ready"], expected)
 
 
 if __name__ == "__main__":

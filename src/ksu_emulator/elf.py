@@ -2,8 +2,16 @@
 from __future__ import annotations
 
 import struct
+from pathlib import Path
 
 from .common import Error
+
+
+def verify_imports(info: dict, inventory: Path) -> None:
+    measured = set(inventory.read_text().splitlines())
+    missing = sorted(set(info["undefined_symbols"]) - measured)
+    if missing:
+        raise Error(f"{info['name']} imports symbols absent from the measured kernel: " + ", ".join(missing))
 
 
 def module_info(data: bytes, expected_name: str | None = "kernelsu") -> dict:

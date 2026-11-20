@@ -77,7 +77,7 @@ def validate_profile(profile: dict) -> None:
         raise Error("Invalid kernel-side KernelSU version")
     if not matches(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+", profile.get("ksu_package")):
         raise Error("Invalid manager package name")
-    for name in ("kernel_image_sha256", "config_gz_sha256", "ksud_sha256"):
+    for name in ("kernel_image_sha256", "config_gz_sha256", "vendor_module_sha256", "ksud_sha256"):
         if not matches(HEX256, profile.get(name)):
             raise Error(f"Missing SHA-256: {name}")
     if not isinstance(profile.get("sources"), dict) or set(profile["sources"]) != {"kernel", "kernelsu", "userspace", "manager"}:

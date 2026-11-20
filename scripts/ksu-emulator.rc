@@ -1,6 +1,16 @@
 on post-fs-data
     exec u:r:init:s0 root -- /system/bin/sh /system/etc/ksu-emulator/boot.sh
 
+service mumu_disk_cleanup /system/etc/ksu-emulator/mumu-disk-cleanupd server
+    class late_start
+    disabled
+    user root
+    group root
+    seclabel u:r:mumu_disk_cleanup:s0
+
+on property:sys.ksu_emulator.ready=1
+    start mumu_disk_cleanup
+
 on nonencrypted && property:sys.ksu_emulator.ready=1
     exec u:r:ksu:s0 root -- /data/adb/ksud services
 

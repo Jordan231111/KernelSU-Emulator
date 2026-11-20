@@ -1,0 +1,26 @@
+# Dedicated maintenance domain. No root shell or caller-selected path.
+type mumu_disk_cleanup domain
+type mumu_disk_cleanup_socket file_type
+allow init mumu_disk_cleanup process transition
+allow ksu mumu_disk_cleanup process transition
+allow mumu_disk_cleanup system_file file { entrypoint read open getattr execute map }
+allow mumu_disk_cleanup system_file dir { search open read getattr }
+allow mumu_disk_cleanup rootfs dir search
+allow mumu_disk_cleanup tmpfs dir search
+allow mumu_disk_cleanup device dir search
+allow mumu_disk_cleanup socket_device dir { search write add_name remove_name }
+type_transition mumu_disk_cleanup socket_device sock_file mumu_disk_cleanup_socket
+allow mumu_disk_cleanup mumu_disk_cleanup_socket sock_file { create getattr setattr unlink }
+allow mumu_disk_cleanup mumu_disk_cleanup unix_stream_socket { create bind listen accept read write getopt setopt shutdown }
+allow mumu_disk_cleanup mumu_disk_cleanup capability { chown fowner fsetid dac_read_search setuid setgid setpcap sys_admin }
+allow mumu_disk_cleanup mumu_disk_cleanup process { getcap setcap }
+allow mumu_disk_cleanup mumu_disk_cleanup dir search
+allow mumu_disk_cleanup mumu_disk_cleanup lnk_file read
+allow mumu_disk_cleanup system_data_root_file dir { read open search getattr ioctl }
+allowxperm mumu_disk_cleanup system_data_root_file dir ioctl 0x5879
+allow mumu_disk_cleanup null_device chr_file { read write open getattr ioctl }
+allow mumu_disk_cleanup init fd use
+allow mumu_disk_cleanup ksu fd use
+allow mumu_disk_cleanup kmsg_device chr_file { write append }
+allow system_app mumu_disk_cleanup_socket sock_file write
+allow system_app mumu_disk_cleanup unix_stream_socket connectto

@@ -1,26 +1,145 @@
+--- a/kernel/HooKern/hk_inline.c
++++ b/kernel/HooKern/hk_inline.c
+@@ -11,7 +11,9 @@
+ #include <linux/mutex.h>
+ #include <linux/kernel.h>
+ #include <linux/printk.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+ #include <linux/rcupdate_trace.h>
++#endif
+ #include <linux/slab.h>
+ #include <linux/string.h>
+ #include <linux/types.h>
+@@ -23,6 +25,11 @@
+ #include "hk_patch.h"
+ #include "hk_inline.h"
+ 
++/* 4.19 module_alloc() uses PAGE_KERNEL_EXEC with vm_flags=0; its
++ * vmalloc implementation predates VM_FLUSH_RESET_PERMS. */
++#ifndef VM_FLUSH_RESET_PERMS
++#define VM_FLUSH_RESET_PERMS 0
++#endif
+ #define HK_TRAMP_SIZE 4096
+ #define HK_INS_LDR_X17 0x58000051
+ #define HK_INS_LDR_X17_P12 0x58000071
+--- a/kernel/HooKern/hk_redir.h
++++ b/kernel/HooKern/hk_redir.h
+@@ -96,6 +96,7 @@
+ 	HK_REDIR_GUARD_CALLER,		/* the return address, nothing to clear */
+ };
+ 
++#ifndef HK_NO_REDIR
+ struct hk_redir {
+ 	enum hk_redir_how how;
+ 	enum hk_redir_guard guard;	/* read before the install, zero is the task marker */
+@@ -113,6 +114,9 @@
+ 		struct hk_kprobe kprobe;
+ 	} u;
+ };
++#else
++struct hk_redir;
++#endif
+ 
+ /*
+  * both sides by name, resolved here: the cfi suffix of a replacement is not
 --- a/kernel/Makefile
 +++ b/kernel/Makefile
-@@ -12,6 +12,7 @@
- # are still in the tree for reference; add them back here if they are ever needed.
+@@ -7,8 +7,9 @@
+ # modules that were used while working the hooks out are not in this tree any more.
  
  obj-m += susfs_guard_lkm.o
-+ccflags-y += -include $(src)/susfs.h
++ccflags-y += -include $(src)/mumu_compat.h -I$(srctree)/fs/proc
  
- susfs_guard_lkm-objs := susfs_main.o patch_memory.o symbol_resolver.o lsm_hook.o \
+-susfs_guard_lkm-objs := susfs_main.o patch_memory.o symbol_resolver.o lsm_hook.o \
++susfs_guard_lkm-objs := susfs_main.o patch_memory.o mumu_symbols.o mumu_map_files.o mumu_overlay.o mumu_uid_filter.o lsm_hook.o \
                susfs_uname.o susfs_kstat.o sus_map.o sus_path.o sus_mount.o \
---- a/kernel/patch_memory.c
-+++ b/kernel/patch_memory.c
-@@ -8,6 +8,7 @@
- #ifdef __aarch64__
+               spoof_cmdline.o susfs_open_redirect.o susfs_enable_log.o \
+               susfs_avc_spoof.o susfs_supercall.o susfs_hide_syms.o imports_guard.o \
+@@ -17,9 +18,7 @@
+               sus_mount_identity.o sus_mount_idmap.o sus_mount_prefix.o sus_mount_policy.o sus_mount_view.o sus_mount_ns_iter.o \
+               fsnotify_lifetime.o btf_layout.o sus_dirent.o
  
- #include "patch_memory.h"
-+#include "susfs.h"
- #include "susfs_log.h"
- #include <linux/cpumask.h>
- #include <linux/gfp.h>
+-susfs_guard_lkm-objs += kallrecon/lib/core.o kallrecon/lib/access.o kallrecon/lib/discover.o \
+-              kallrecon/lib/symbol.o kallrecon/lib/slide.o kallrecon/lib/fastboot.o \
+-              kallrecon/lib/hint.o kallrecon/lib/variant.o kallrecon/lib/anchor.o
++
+ 
+ susfs_guard_lkm-objs += HooKern/hk.o HooKern/hk_ksym.o HooKern/hk_patch.o HooKern/hk_flush.o \
+               HooKern/hk_inline.o
+--- a/kernel/imports_guard.c
++++ b/kernel/imports_guard.c
+@@ -37,11 +37,14 @@
+ #include <linux/kernel.h>
+ #include <linux/init.h>
+ #include <linux/delay.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+ #include <linux/kstrtox.h>
++#endif
+ #include <linux/string.h>
+ #include <linux/slab.h>
+ #include <linux/mm.h>
+ #include <linux/fs.h>
++#include <linux/file.h>
+ #include <linux/namei.h>
+ #include <linux/uaccess.h>
+ #include <linux/mutex.h>
+@@ -86,7 +89,7 @@
+ 
+ static const struct susfs_import susfs_imports[] = {
+     /* names the loaders exist for: unexported or namespaced */
+-    IMP_DATA(saved_boot_config),
++    IMP_DATA(saved_command_line),
+     IMP_DATA(init_mm),
+     IMP(kern_path),
+     IMP(ihold),
+@@ -100,7 +103,9 @@
+     IMP(task_work_add),
+     IMP(__set_fixmap),
+     IMP_DATA(memstart_addr),
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     IMP_DATA(arm64_use_ng_mappings),
++#endif
+     IMP(copy_to_kernel_nofault),
+     IMP(security_secctx_to_secid),
+     IMP(stop_machine),
+--- a/kernel/sus_dirent.c
++++ b/kernel/sus_dirent.c
+@@ -71,6 +71,7 @@
+ };
+ 
+ struct sd_buf {
++	struct super_block *sb;
+ 	struct dir_context		ctx;
+ 	void __user			*current_dir;
+ 	int				prev_reclen;
+@@ -88,6 +89,7 @@
+ 
+ static atomic_t n_sd_calls = ATOMIC_INIT(0);
+ static atomic_t n_sd_hidden = ATOMIC_INIT(0);
++int susfs_dirent_filtered(void) { return atomic_read(&n_sd_hidden); }
+ 
+ /* fs/readdir.c's verify_dirent_name(), which is static there - both halves of it: the length bound
+  * is the one this used to drop, and the kernel applies the whole check before it writes anything,
+@@ -119,7 +121,7 @@
+ 	if (namlen > 0 && namlen <= NAME_MAX) {
+ 		memcpy(nbuf, name, namlen);
+ 		nbuf[namlen] = 0;
+-		if (sus_path_dirent_hidden(ino, nbuf)) {
++		if (sus_path_dirent_hidden_on_sb(buf->sb, ino, nbuf)) {
+ 			atomic_inc(&n_sd_hidden);
+ 			return SD_GO;
+ 		}
+@@ -243,6 +245,7 @@
+ 		pos_locked = true;
+ 	}
+ 
++	buf.sb = file_inode(f)->i_sb;
+ 	error = sd_iterate_dir(f, &buf.ctx);
+ 	if (error >= 0)
+ 		error = buf.error;
 --- a/kernel/sus_map.c
 +++ b/kernel/sus_map.c
-@@ -256,9 +256,16 @@
+@@ -420,9 +420,16 @@
          return;
      sus_map_walk_ops_done = true;
  
@@ -37,7 +156,7 @@
  
      if (!sus_map_ops_smaps && !sus_map_ops_smaps_shmem && !sus_map_ops_pagemap) {
          pr_warn("sus_map: smaps/pagemap walk ops not found in kallsyms - "
-@@ -366,7 +373,12 @@
+@@ -530,7 +537,12 @@
   * holds for read - so sus_map_find_vma()'s container cannot change underneath it. */
  static int sus_map_skip_walk_pre(struct kprobe *kp, struct pt_regs *regs)
  {
@@ -50,7 +169,7 @@
      struct mm_struct *mm;
      struct vm_area_struct *vma;
      unsigned long start;
-@@ -381,8 +393,13 @@
+@@ -545,8 +557,13 @@
      if (!sus_map_gate_ok())
          return 0;
  
@@ -64,7 +183,7 @@
      if (!mm)
          return 0;
  
-@@ -400,7 +417,12 @@
+@@ -564,7 +581,12 @@
  /* walk_page_vma(vma, ops, private): same walk, vma handed over directly. */
  static int sus_map_skip_walk_vma_pre(struct kprobe *kp, struct pt_regs *regs)
  {
@@ -77,7 +196,7 @@
  
      atomic_inc(&n_walk_seen_vma);
      if (walk_dbg)
-@@ -463,6 +485,18 @@
+@@ -627,6 +649,18 @@
   * wrapper's probe was removed after zero hits in every run.  __get_user_pages_remote, what
   * both wrappers end in, takes the same (mm, start) as its first two arguments and is armed
   * too; a short circuit at the outer layer stops the inner one from being reached. */
@@ -96,7 +215,7 @@
  static struct kprobe kp_gup_remote = {
      .symbol_name = "get_user_pages_remote",
      .pre_handler = sus_map_vm_access_pre,
-@@ -475,8 +509,14 @@
+@@ -639,8 +673,14 @@
  
  static int sus_map_vm_access_pre(struct kprobe *kp, struct pt_regs *regs)
  {
@@ -111,10 +230,26 @@
      struct vm_area_struct *vma;
      struct inode *inode;
  
-@@ -578,7 +618,10 @@
+@@ -668,6 +708,15 @@
+     regs->pc = regs->regs[30];          /* skip the call: nothing is pinned */
+     return 1;
+ }
++
++/* Shared with the 4.19 proc directory/lookup wrappers. */
++bool mumu_sus_map_inode_hidden(struct inode *inode)
++{
++    return inode && sus_map_gate_ok() &&
++           sus_map_lookup(inode->i_ino, inode->i_sb->s_dev);
++}
++extern int mumu_map_files_init(void);
++extern void mumu_map_files_exit(void);
+ 
+ /* ---- /proc/<pid>/map_files/<start>-<end> ----
+  *
+@@ -793,7 +842,10 @@
  /* Kept in one table so init and exit cannot drift apart. */
  static struct kprobe *const map_probes[] = {
-     &kp_map, &kp_map_smap, &kp_map_walk, &kp_map_walk_vma,
+     &kp_map, &kp_map_smap, &kp_map_outer, &kp_map_walk, &kp_map_walk_vma,
 -    &kp_gup_remote, &kp_gup_remote_inner,
 +    &kp_gup_remote,
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
@@ -123,9 +258,149 @@
  };
  #define N_MAP_PROBES ARRAY_SIZE(map_probes)
  static bool map_registered;
+@@ -1150,7 +1202,8 @@
+ 
+ int susfs_sus_map_init(void)
+ {
+-    int rc;
++    int rc = mumu_map_files_init();
++    if (rc) return rc;
+ 
+     if (susfs_control_node_allowed()) {
+         sus_map_entry = proc_create("susfs_map", 0777, NULL, &sus_map_proc_ops);
+@@ -1186,6 +1239,7 @@
+ void susfs_sus_map_exit(void)
+ {
+     int i;
++    mumu_map_files_exit();
+ 
+     if (sus_map_entry) {
+         proc_remove(sus_map_entry);
 --- a/kernel/sus_mount.c
 +++ b/kernel/sus_mount.c
-@@ -91,7 +91,7 @@
+@@ -1,111 +1,17 @@
+ // SPDX-License-Identifier: GPL-2.0
+ /*
+- * sus_mount.c - hide KSU mounts from /proc/mounts and /proc/mountinfo.
++ * MuMu 4.19: hide individual mount objects using IDs genuinely allocated from
++ * the kernel's IDA. New KSU mount trees are marked before attach propagation;
++ * clone_mnt inherits the mark, and cleanup_mnt removes stale ID translations.
++ * A bind of an entire filesystem must never hide its original mount merely
++ * because both roots share an inode. Identity matching is disabled on MuMu.
+  *
+- * Upstream SUSFS skips a mount line when r->mnt_id >= DEFAULT_KSU_MNT_ID, and
+- * (patch:1561-1585) installs those show functions only for NON-ksu domains
+- * (!susfs_is_current_ksu_domain() in mounts_open()/mountinfo_open()/mountstats_open()),
+- * so the su/ksu domain keeps seeing its own mounts (zygisk in post-fs-data and ksud
+- * break otherwise).  The stock show functions are static but sit behind proc_ops function
+- * pointers, so they are NOT LTO-inlined and stay kprobe-able (verified in kallsyms); the
+- * LKM hooks all three with a kprobe pre_handler and returns early (regs->pc = x30) for a
+- * KSU-range id, under the same domain gate.  struct mount / real_mount() come from the
+- * private fs/mount.h (its includes are all public headers, so -I$(srctree)/fs is enough).
++ * Visibility remains switchable independently of lifetime tracking. fdinfo
++ * refreshes its translation from the live file, including the first read after
++ * a namespace clone. Root retains the actual mount view.
+  *
+- * The LKM hooks all three show functions with a kprobe pre_handler and returns
+- * early (regs->pc = x30) when the mount id is in the KSU range - but only for
+- * non-su/ksu processes, mirroring upstream's domain gate: the su domain must
+- * keep seeing its own mounts or su tooling (zygisk in post-fs-data, ksud)
+- * breaks.  struct mount / real_mount() come from the private fs/mount.h (its
+- * includes are all public headers, so -I$(srctree)/fs is enough).
+- *
+- * HOW THE ID RANGE IS PRODUCED (this is the part that used to be missing):
+- * upstream gets KSU mounts into that range by ADDING an allocator
+- * (susfs_alloc_non_unshare_ksu_vfsmnt(), which calls
+- * ida_alloc_min(&mnt_id_ida, DEFAULT_KSU_MNT_ID, GFP_KERNEL), patch:676-693) and
+- * SWAPPING THE CALL SITES in vfs_create_mount()/clone_mnt() (patch:764, 800);
+- * mnt_alloc_id() itself is never patched.  The LKM does not patch kernel text
+- * at all, so its stock allocator (plain ida_alloc, smallest free id) keeps
+- * handing out small ids - measured on device: 91..39693, so the old fixed 2e9
+- * threshold could never match and the feature was 100% OFF.
+- *
+- * A mount is one of ours when mnt_devname contains "/data/adb/" (KSU/module bind mounts)
+- * or the mount POINT - d_path() of {mnt, mnt_root}, the path show_mountinfo() prints - is
+- * under /data/adb (catches meta-overlayfs, whose source is /dev/block/loopNN).  Marked ids
+- * are never restored on disable, matching upstream, where an id is assigned once at mount
+- * time and stays for the mount's lifetime.
+- *
+- * The new id is a REAL id taken from the kernel's own mnt_id_ida:
+- *   ida_alloc_range(&mnt_id_ida, DEFAULT_KSU_MNT_ID, INT_MAX - 1, GFP_KERNEL)
+- * NOT an invented number.  That is not a style choice.  mnt_free_id()
+- * (fs/namespace.c:136-139) unconditionally calls ida_free(&mnt_id_ida,
+- * mnt->mnt_id) when the mount finally goes away, so a hand-made id makes
+- * lib/idr.c:523-525 fire WARN(1, "ida_free called for id=%d which is not
+- * allocated.") on umount - and a WARN plus stack dump in dmesg is exactly the
+- * kind of trace a root detector greps for, i.e. worse than the feature doing
+- * nothing.  Upstream is under the same constraint and short-circuits the free
+- * for its fake ids (patch:582-588); mnt_free_id() is static + LTO-inlined on
+- * this kernel, so we cannot patch it - owning the id for real is the fix.
+- *
+- * Degradation: if mnt_id_ida / ida_alloc_range / ida_free cannot ALL be
+- * resolved, nothing is marked at all.  min_mnt_id then stays false, the feature
+- * does nothing, and every missing symbol is named in a pr_warn.  Falling back to
+- * a self-made id is deliberately NOT an option (see the WARN above).
+- *
+- * A mount is recognised by either of:
+- *   - mnt_devname contains "/data/adb/" (KSU/module bind mounts, whose source is
+- *     the file under /data/adb/modules/...);
+- *   - the mount POINT - d_path() of {mnt, mnt_root}, i.e. the same path
+- *     show_mountinfo() prints - is under /data/adb (catches meta-overlayfs, whose
+- *     source is a loop device: "/dev/block/loop48
+- *     /data/adb/modules/meta-overlayfs/mnt ext4 rw,...").
+- * Marked ids are never restored on disable, matching upstream, where an id is
+- * assigned once at mount time and stays for the mount's lifetime.
+- *
+- * ---- the namespace that matters, and why identity is remembered as well
+- *
+- * KernelSU mounts module content into the ZYGOTE's mount namespace, because that
+- * is the namespace every app is forked into.  The same filesystem is therefore a
+- * different mount OBJECT there, with an id of its own - measured on this device:
+- * /data/adb/modules/meta-overlayfs/mnt is id 2000000000 in the init namespace and
+- * id 1111 in the zygote's.  Marking is what creates the big id, so it could only
+- * cover the namespaces that existed when it ran; the id test alone then hid the
+- * line in one view and left it in the app's own mount table - the one a checker
+- * actually reads.
+- *
+- * The fix is identity, not a wider scan: sweeping every namespace from the task
+- * list would mean walking mount tables that other tasks are mounting into and
+- * unmounting from, under the protocol fs/mount.h documents for that
+- * (namespace_sem for read plus ns_lock).  Below 6.12 only the ns_lock half of it
+- * is reachable from a module, because namespace_sem is static in fs/namespace.c -
+- * a foreign namespace mounts and unmounts while we walk it, which is exactly the
+- * class of thing that takes a device down.  From 6.12 the tree is guarded by
+- * namespace_sem instead and its ADDRESS is resolved at load time, so a walk is
+- * possible - but only of the one namespace nobody can be in yet, the copy
+- * copy_mnt_ns() has just built for the calling task (see the clone section
+- * below).  Everything else stays identity based: the mount's IDENTITY is
+- * remembered by the scan that already runs safely in the caller's namespace:
+- *
+- *   - superblock device + root dentry (both belong to the filesystem, so the same
+- *     filesystem mounted in the zygote is matched), plus a path-shaped source
+- *     string for equality;
+- *   - the hide hooks accept identity as well as a KSU-range id, and hiding an
+- *     identity-matched mount learns its id into the same id -> shown-id mapping, so
+- *     fdinfo/statx keep naming a mount line the caller can still see.
+- *
+- * Known blind spots of the scan:
+- *   - overlayfs mounts that KernelSU places on /system have d_path "/system"
+- *     and mnt_devname "overlay", so they are NOT recognised; only intercepting
+- *     vfs_create_mount()/clone_mnt() by su domain (upstream's group (1)) would
+- *     catch those;
+- *   - only the mount namespace of the process that enables the feature is
+- *     scanned; a mount namespace cloned later (copy_mnt_ns()/unshare()) gets
+- *     fresh small ids from the stock allocator (upstream handles that in
+- *     clone_mnt() with CL_COPY_MNT_NS, patch:789-810).  It is not left
+- *     uncovered: the copy_mnt_ns() probe walks the namespace it has just built
+- *     and learns those ids (sus_mount_learn_ns() below 6.12,
+- *     sus_mount_learn_ns_walk() from 6.12 on), while the mount LINES in it are
+- *     hidden by identity - which is what the note above this list is about.
++ * The upstream paths for other kernel versions retain their prefix/identity
++ * implementation. MuMu's ABI and locking adaptations are version-gated below.
+  */
+ #include <linux/module.h>
+ #include <linux/kprobes.h>
+@@ -136,7 +42,7 @@
                               * version gates below into hard errors when it was missing */
  #include <linux/rbtree.h>   /* >= 6.12: ns->mounts is an rb-tree, not a list */
  #include <linux/rwsem.h>    /* >= 6.12: namespace_sem is a struct rw_semaphore */
@@ -134,8 +409,119 @@
  #include <linux/workqueue.h> /* >= 6.12: the deferred walk of a cloned namespace */
  #endif
  #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
-@@ -704,7 +704,7 @@
-  * keeps the deferred path from being handed one. */
+@@ -152,6 +58,11 @@
+ #include "sus_mount_policy.h"
+ #include "sus_mount_view.h"
+ #include "sus_mount_prefix.h"
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++#include <linux/fdtable.h>
++#include <linux/file.h>
++#include "internal.h"
++#endif
+ 
+ /* F keeps the rescan counter and the sysfs truncation reserve; the records are in D. */
+ #define SUS_MOUNT_KEEP_TRUNC_RESERVE (SUS_MOUNT_KEEP_LEN + 64)
+@@ -465,14 +376,98 @@
+ {
+     int shown;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     if (sus_mount_idmap_shown_for((int)r->mnt_id))
+         return;
++#endif
+     shown = sus_mount_shown_id_from(r, SUS_MOUNT_KSU_ID_MIN, sus_mount_path_is_ours);
+     if (shown > 0 && shown != (int)r->mnt_id) {
+         sus_mount_idmap_add((int)r->mnt_id, shown, r->mnt.mnt_sb->s_dev);
+         atomic_inc(&n_ident_learned);
+     }
+ }
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++/* Assign real high IDs to individual mounts, never to filesystem identities.
++ * Probe callbacks cannot sleep; the kernel's IDA supports GFP_ATOMIC here. */
++static atomic_t mumu_mount_tagged = ATOMIC_INIT(0);
++static atomic_t mumu_mount_clone_tagged = ATOMIC_INIT(0);
++static atomic_t mumu_mount_alloc_failed = ATOMIC_INIT(0);
++static atomic_t mumu_mount_freed = ATOMIC_INIT(0);
++static atomic_t mumu_mount_fd_refreshed = ATOMIC_INIT(0);
++
++static void mumu_mount_tag(struct mount *r, int fallback)
++{
++    int old, id;
++    if (!r || IS_ERR(r)) return;
++    old = READ_ONCE(r->mnt_id);
++    if ((unsigned int)old < SUS_MOUNT_KSU_ID_MIN) {
++        id = pfn_ida_alloc_range(sus_mount_mnt_id_ida, SUS_MOUNT_KSU_ID_MIN,
++                                INT_MAX - 1, GFP_ATOMIC);
++        if (id < 0) { atomic_inc(&mumu_mount_alloc_failed); return; }
++        WRITE_ONCE(r->mnt_id, id);
++        sus_mount_idmap_drop(old);
++        sus_mount_ida_release(old);
++        atomic_inc(&mumu_mount_tagged);
++    }
++    if (fallback > 0 && (unsigned int)fallback < SUS_MOUNT_KSU_ID_MIN)
++        sus_mount_idmap_add(r->mnt_id, fallback, r->mnt.mnt_sb->s_dev);
++}
++
++static struct mount *mumu_next_mount(struct mount *m, struct mount *root)
++{
++    if (!list_empty(&m->mnt_mounts))
++        return list_first_entry(&m->mnt_mounts, struct mount, mnt_child);
++    while (m != root) {
++        if (m->mnt_child.next != &m->mnt_parent->mnt_mounts)
++            return list_entry(m->mnt_child.next, struct mount, mnt_child);
++        m = m->mnt_parent;
++    }
++    return NULL;
++}
++
++static void mumu_mount_tag_tree(struct mount *root, int fallback)
++{
++    struct mount *m;
++    for (m = root; m; m = mumu_next_mount(m, root))
++        mumu_mount_tag(m, fallback);
++}
++
++struct mumu_mount_clone_state { bool hidden; int shown; };
++static int mumu_mount_clone_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
++{
++    struct mumu_mount_clone_state *st = (void *)ri->data;
++    struct mount *old = (void *)regs->regs[0];
++    st->hidden = old && (unsigned int)READ_ONCE(old->mnt_id) >= SUS_MOUNT_KSU_ID_MIN;
++    st->shown = st->hidden ? sus_mount_idmap_shown_for(old->mnt_id) : 0;
++    return 0;
++}
++static int mumu_mount_clone_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
++{
++    struct mumu_mount_clone_state *st = (void *)ri->data;
++    struct mount *m = (void *)regs_return_value(regs);
++    if (st->hidden && m && !IS_ERR(m)) {
++        mumu_mount_tag(m, st->shown);
++        atomic_inc(&mumu_mount_clone_tagged);
++    }
++    return 0;
++}
++static struct kretprobe mumu_clone_mnt = {
++    .kp.symbol_name = "clone_mnt", .entry_handler = mumu_mount_clone_entry,
++    .handler = mumu_mount_clone_ret, .data_size = sizeof(struct mumu_mount_clone_state),
++    .maxactive = 128,
++};
++static int mumu_mount_free_pre(struct kprobe *kp, struct pt_regs *regs)
++{
++    struct mount *m = (void *)regs->regs[0];
++    if (m) { sus_mount_idmap_drop(m->mnt_id); atomic_inc(&mumu_mount_freed); }
++    return 0;
++}
++static struct kprobe mumu_cleanup_mnt = {
++    .symbol_name = "cleanup_mnt", .pre_handler = mumu_mount_free_pre,
++};
++static bool mumu_mount_lifetime_active;
++#endif
+ 
+ /* ---- namespaces created AFTER the enable ----
+  *
+@@ -502,17 +497,17 @@
+  * that bug - and nothing is allocated: the id table is fixed size. */
  static atomic_t n_clone_walks = ATOMIC_INIT(0);
  static atomic_t n_clone_learned = ATOMIC_INIT(0);
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
@@ -143,85 +529,19 @@
  static atomic_t n_clone_queued = ATOMIC_INIT(0);
  static atomic_t n_clone_dropped = ATOMIC_INIT(0);
  static atomic_t n_clone_refused_logged = ATOMIC_INIT(0);
-@@ -727,43 +727,54 @@
-  * The lock may SLEEP (down_read), so it is process context only - which is why the
-  * kretprobe path (sus_mount_learn_ns) walks without it and relies on the namespace being
-  * private instead. */
+ #endif
+ 
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
  static struct rw_semaphore *sus_mount_namespace_sem;
+ #endif
  
- static bool sus_mount_ns_walk_begin(void)
- {
-     if (!sus_mount_namespace_sem)
-         return false;
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    /* Marking changes mnt_id; exclude namespace readers as well as writers. */
-+    down_write(sus_mount_namespace_sem);
-+#else
-     down_read(sus_mount_namespace_sem);
-+#endif
-     return true;
- }
- 
- static void sus_mount_ns_walk_end(void)
- {
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    up_write(sus_mount_namespace_sem);
-+#else
-     up_read(sus_mount_namespace_sem);
--}
--
--#define SUS_MOUNT_ITER_TYPE		struct rb_node *
--#define SUS_MOUNT_ITER_FOR(ns, it)	for ((it) = rb_first(&(ns)->mounts); (it); (it) = rb_next(it))
--#define SUS_MOUNT_ITER_MOUNT(it)	rb_entry((it), struct mount, mnt_node)
--#define SUS_MOUNT_MNT_NOT_IN_NS(r, ns)	((r)->mnt_ns != (ns) || !mnt_ns_attached(r))
-+#endif
-+}
-+
- #else
--static bool sus_mount_ns_walk_begin(void)
--{
--    return true;	/* the caller takes ns_lock instead */
--}
--
--static void sus_mount_ns_walk_end(void)
--{
--}
--
--#define SUS_MOUNT_ITER_TYPE		struct list_head *
--#define SUS_MOUNT_ITER_FOR(ns, it)	for ((it) = (ns)->list.next; (it) != &(ns)->list; (it) = (it)->next)
--#define SUS_MOUNT_ITER_MOUNT(it)	list_entry((it), struct mount, mnt_list)
--#define SUS_MOUNT_MNT_NOT_IN_NS(r, ns)	((r)->mnt_ns != (ns) || ((r)->mnt.mnt_flags & MNT_CURSOR))
--#endif
--
 -#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
-+static bool sus_mount_ns_walk_begin(void) { return true; }
-+static void sus_mount_ns_walk_end(void) { }
-+#endif
-+
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-+#define SUS_MOUNT_ITER_TYPE struct rb_node *
-+#define SUS_MOUNT_ITER_FOR(ns, it) for ((it) = rb_first(&(ns)->mounts); (it); (it) = rb_next(it))
-+#define SUS_MOUNT_ITER_MOUNT(it) rb_entry((it), struct mount, mnt_node)
-+#define SUS_MOUNT_MNT_NOT_IN_NS(r, ns) ((r)->mnt_ns != (ns) || !mnt_ns_attached(r))
-+#else
-+#define SUS_MOUNT_ITER_TYPE struct list_head *
-+#define SUS_MOUNT_ITER_FOR(ns, it) for ((it) = (ns)->list.next; (it) != &(ns)->list; (it) = (it)->next)
-+#define SUS_MOUNT_ITER_MOUNT(it) list_entry((it), struct mount, mnt_list)
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+/* 4.19 namespace.c has no synthetic MNT_CURSOR nodes. */
-+#define SUS_MOUNT_MNT_NOT_IN_NS(r, ns) ((r)->mnt_ns != (ns))
-+#else
-+#define SUS_MOUNT_MNT_NOT_IN_NS(r, ns) ((r)->mnt_ns != (ns) || ((r)->mnt.mnt_flags & MNT_CURSOR))
-+#endif
-+#endif
-+
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
- /* Immediate walk: only for < 6.12, where ns_lock is a spinlock this probe may take.
-  * Unchanged on purpose - the < 6.12 build is shipped and verified, so this body must
-  * generate the same code it always did. */
-@@ -908,16 +919,14 @@
+ 
+ static void sus_mount_learn_ns(struct mnt_namespace *ns)
+ {
+@@ -630,16 +625,14 @@
          atomic_inc(&n_clone_dropped);
          return;
      }
@@ -239,7 +559,7 @@
      sus_mount_learn_ring[sus_mount_learn_head] = ns;
      sus_mount_learn_head = next;
      spin_unlock_irqrestore(&sus_mount_learn_lock, flags);
-@@ -960,7 +969,7 @@
+@@ -679,7 +672,7 @@
          return 0;			/* plain fork: the current namespace, not a copy */
      if (IS_ERR_OR_NULL(ns))
          return 0;
@@ -248,7 +568,114 @@
      sus_mount_learn_ns(ns);
  #else
      sus_mount_defer_learn_ns(ns);
-@@ -1255,6 +1264,7 @@
+@@ -728,6 +721,15 @@
+     struct sus_mount_newmnt_state *st = (struct sus_mount_newmnt_state *)ri->data;
+ 
+     st->m = (struct mount *)regs->regs[0];	/* source_mnt */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    /* parent_path is non-NULL for a move of an existing mount. Mark new
++     * trees BEFORE propagation clones them, while namespace_sem is held. */
++    if (!regs->regs[3] && sus_mount_is_su_domain()) {
++        struct mount *dest = (void *)regs->regs[1];
++        int shown = dest ? sus_mount_shown_id(dest) : 0;
++        mumu_mount_tag_tree(st->m, shown);
++    }
++#endif
+     return 0;
+ }
+ 
+@@ -782,10 +784,20 @@
+      * mountpoint path to test and no parent chain for the shown id. */
+     if (!r->mnt_parent || r->mnt_parent == r)
+         return 0;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    if ((unsigned int)r->mnt_id >= SUS_MOUNT_KSU_ID_MIN) {
++        struct mount *m;
++        for (m = r; m; m = mumu_next_mount(m, r)) sus_mount_note_id(m);
++        return 0;
++    }
++#endif
+     if (!sus_mount_should_record(r, buf, sizeof(buf), &why))
+         return 0;
+-
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    mumu_mount_tag_tree(r, sus_mount_shown_id(r->mnt_parent));
++#else
+     sus_mount_ident_add(r, mount_dbg);
++#endif
+     sus_mount_note_id(r);
+     atomic_inc(&n_newmnt_recorded);
+     SUSFS_LOGI("sus_mount: learned mount at %s (mnt_id %d, devname %s)\n",
+@@ -798,7 +810,7 @@
+     .entry_handler = sus_mount_newmnt_entry,
+     .handler = sus_mount_newmnt_ret,
+     .data_size = sizeof(struct sus_mount_newmnt_state),
+-    .maxactive = 16,
++    .maxactive = 128,
+ };
+ static bool kr_newmnt_ok;
+ 
+@@ -848,6 +860,45 @@
+  * replacement never grows, so m->count stays consistent.  The other half of the fdinfo line
+  * (the ino) belongs to open_redirect's own kretprobe, which must fire whether or not this
+  * feature's hide switch is on. */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++static int mumu_mount_fdinfo_shown(struct seq_file *m, unsigned int printed_id)
++{
++    int shown = 0;
++    struct task_struct *task;
++    struct files_struct *files;
++    struct file *file = NULL;
++    struct inode *inode = m->private;
++    if (!inode) return 0;
++    BUILD_BUG_ON(offsetof(struct proc_inode, vfs_inode) != 72);
++    task = get_pid_task(PROC_I(inode)->pid, PIDTYPE_PID);
++    if (!task) return 0;
++    task_lock(task);
++    files = task->files;
++    if (files) {
++        spin_lock(&files->file_lock);
++        file = fcheck_files(files, PROC_I(inode)->fd);
++        if (file) get_file(file);
++        spin_unlock(&files->file_lock);
++    }
++    task_unlock(task);
++    put_task_struct(task);
++    if (file) {
++        struct mount *r = real_mount(file->f_path.mnt);
++        rcu_read_lock();
++        if ((unsigned int)READ_ONCE(r->mnt_id) == printed_id &&
++            printed_id >= SUS_MOUNT_KSU_ID_MIN) {
++            /* Derive this read from the live mount, even when the bounded
++             * translation cache is full. The file reference pins its mount. */
++            shown = sus_mount_shown_id_from(r, SUS_MOUNT_KSU_ID_MIN, sus_mount_path_is_ours);
++            atomic_inc(&mumu_mount_fd_refreshed);
++        }
++        rcu_read_unlock();
++        fput(file);
++    }
++    return shown;
++}
++#endif
++
+ static bool sus_mount_fdinfo_replace_mntid(struct seq_file *m)
+ {
+     char *buf = m->buf, digits[12];
+@@ -873,7 +924,12 @@
+     if (!len)
+         return false;
+ 
+-    shown = sus_mount_idmap_shown_for((int)old);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    shown = mumu_mount_fdinfo_shown(m, (unsigned int)old);
++    /* Retain cached translation if the descriptor closed during seq_show. */
++    if (shown <= 0)
++#endif
++        shown = sus_mount_idmap_shown_for((int)old);
+     if (shown <= 0)
+         return false;
+ 
+@@ -1045,6 +1101,7 @@
  
  static int sus_mount_statx_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
  {
@@ -256,7 +683,7 @@
      struct sus_mount_kretprobe_state *st = (struct sus_mount_kretprobe_state *)ri->data;
      unsigned long ubuf = st->ubuf;
      u64 id = 0, shown;
-@@ -1295,6 +1305,9 @@
+@@ -1085,6 +1142,9 @@
      }
      atomic_inc(&n_statx_rewrites);
      return 0;
@@ -266,8 +693,8 @@
  }
  
  static struct kretprobe kr_statx = {
-@@ -1355,7 +1368,7 @@
-                      "idmap: recycled_dropped=%d dropped_dev=%d\n"
+@@ -1116,7 +1176,7 @@
+                      "idmap: recycled_dropped=%d dropped_dev=%d full=%d\n"
                       "sb: down=%d (probe=%d)\n"
                       "clone: walks=%d learned=%d (probe=%d)\n"
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
@@ -275,47 +702,93 @@
                       "clone_defer: queued=%d dropped=%d\n"
  #endif
                       "newmount: seen=%d recorded=%d pathfail=%d (probe=%d)\n"
-@@ -1374,10 +1387,10 @@
-                      atomic_read(&n_idmap_dropped_dev),
+@@ -1136,7 +1196,7 @@
+                      sus_mount_idmap_full(),
                       atomic_read(&n_sb_down), (int)kp_sb_down_ok,
                       atomic_read(&n_clone_walks), atomic_read(&n_clone_learned),
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-+                     (int)kr_clone_ns_ok,
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
                       atomic_read(&n_clone_queued), atomic_read(&n_clone_dropped),
  #endif
--                     (int)kr_clone_ns_ok,
-                      atomic_read(&n_newmnt_seen), atomic_read(&n_newmnt_recorded),
-                      atomic_read(&n_newmnt_pathfail), (int)kr_newmnt_ok,
-                      n_mount_keep, atomic_read(&n_keep_rescans),
-@@ -1856,7 +1869,7 @@
-     }
+                      (int)kr_clone_ns_ok,
+@@ -1826,7 +1886,9 @@
+         if ((unsigned int)r->mnt_id >= SUS_MOUNT_KSU_ID_MIN) {
+             n_skipped_marked++;
+             sus_mount_idmap_add((int)r->mnt_id, sus_mount_shown_id(r), r->mnt.mnt_sb->s_dev);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+             sus_mount_ident_add(r, mount_dbg);
++#endif
+             continue;
+         }
  
-     rcu_read_lock();
--#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
-     spin_lock(&ns->ns_lock);
- #endif
-     SUS_MOUNT_ITER_FOR(ns, pos) {
-@@ -1942,7 +1955,7 @@
-         sus_mount_ident_add(r);
+@@ -1889,7 +1951,9 @@
+         sus_mount_idmap_add(new_id, sus_mount_shown_id(r), r->mnt.mnt_sb->s_dev);
+         /* And the identity, so the same filesystem mounted in another namespace
+          * (where this scan cannot reach) is recognised by the hide hooks. */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+         sus_mount_ident_add(r, mount_dbg);
++#endif
          marked++;
      }
--#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
-     spin_unlock(&ns->ns_lock);
- #endif
-     rcu_read_unlock();
-@@ -2086,7 +2099,7 @@
+     sus_mount_ns_iter_end(iter);
+@@ -2002,6 +2066,47 @@
+     return marked;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++static int mumu_mount_lifetime_init(void)
++{
++    int rc;
++    if (!sus_mount_ida_ready() || !su_sid || !pfn_security_cred_getsecid) return -ENOSYS;
++    rc = register_kprobe(&mumu_cleanup_mnt);
++    if (rc) return rc;
++    rc = register_kretprobe(&mumu_clone_mnt);
++    if (rc) { unregister_kprobe(&mumu_cleanup_mnt); return rc; }
++    rc = register_kretprobe(&kr_newmnt);
++    if (rc) {
++        unregister_kretprobe(&mumu_clone_mnt);
++        unregister_kprobe(&mumu_cleanup_mnt);
++        return rc;
++    }
++    kr_newmnt_ok = true;
++    mumu_mount_lifetime_active = true;
++    return 0;
++}
++static void mumu_mount_lifetime_exit(void)
++{
++    if (!mumu_mount_lifetime_active) return;
++    unregister_kretprobe(&kr_newmnt);
++    unregister_kretprobe(&mumu_clone_mnt);
++    unregister_kprobe(&mumu_cleanup_mnt);
++    kr_newmnt_ok = false;
++    mumu_mount_lifetime_active = false;
++}
++static int mumu_mount_stats_get(char *buf, const struct kernel_param *kp)
++{
++    return scnprintf(buf, PAGE_SIZE,
++        "active=%d tagged=%d inherited=%d allocation_failures=%d freed=%d fd_refreshed=%d attach_missed=%d clone_missed=%d\n",
++        mumu_mount_lifetime_active, atomic_read(&mumu_mount_tagged),
++        atomic_read(&mumu_mount_clone_tagged), atomic_read(&mumu_mount_alloc_failed),
++        atomic_read(&mumu_mount_freed), atomic_read(&mumu_mount_fd_refreshed),
++        kr_newmnt.nmissed, mumu_clone_mnt.nmissed);
++}
++static const struct kernel_param_ops mumu_mount_stats_ops = { .get = mumu_mount_stats_get };
++module_param_cb(mumu_mount_stats, &mumu_mount_stats_ops, NULL, 0444);
++#endif
++
+ int susfs_sus_mount_init(void)
+ {
+     int err;
+@@ -2051,7 +2156,7 @@
      pfn_ida_alloc_range = (void *)find_kernel_symbol_exact("ida_alloc_range");
      pfn_ida_free = (void *)find_kernel_symbol_exact("ida_free");
  #endif
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-     /* >= 6.12 has no ns_lock: the per-namespace mount collection is an rb-tree and the
-      * only lock that makes it walkable is namespace_sem, the same one the kernel's own
-      * /proc/mounts iterator takes for read (fs/namespace.c m_start()/m_stop()).  It is
-@@ -2140,7 +2153,7 @@
+     sus_mount_namespace_sem = (struct rw_semaphore *)find_kernel_symbol_exact("namespace_sem");
+     sus_mount_ns_iter_set_sem(sus_mount_namespace_sem);
+     pfn_put_mnt_ns = (void *)find_kernel_symbol_exact("put_mnt_ns");
+@@ -2094,7 +2199,7 @@
      if (!pfn_ida_free)
          pr_warn("sus_mount: ida_free not found - KSU mounts will NOT be marked, threshold stays false (feature does nothing)\n");
  #endif
@@ -324,24 +797,56 @@
      if (!sus_mount_namespace_sem)
          pr_warn("sus_mount: namespace_sem not found - the namespace scan will refuse to walk, so KSU mounts will NOT be marked (feature does nothing)\n");
      if (!pfn_put_mnt_ns)
-@@ -2234,7 +2247,7 @@
+@@ -2122,6 +2227,10 @@
+         sus_mount_keep_commit(staged, 1);
+     }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    err = mumu_mount_lifetime_init();
++    if (err) return err;
++#endif
+     (void)sus_mount_mark_ksu_mounts();
+ 
+     if (susfs_control_node_allowed()) {
+@@ -2203,23 +2312,28 @@
+         susfs_krp_forget_addr(&kr_clone_ns);
+         kr_clone_ns_ok = false;
+     }
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     if (kr_newmnt_ok) {
+         unregister_kretprobe(&kr_newmnt);
+         susfs_krp_forget_addr(&kr_newmnt);
+         kr_newmnt_ok = false;
+     }
++#endif
+     mount_registered = false;
+     mutex_unlock(&sus_mount_ctl_lock);
+ }
+ 
+ void susfs_sus_mount_exit(void)
+ {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    mumu_mount_lifetime_exit();
++#endif
+     if (sus_mount_keep_entry) {
+         proc_remove(sus_mount_keep_entry);
          sus_mount_keep_entry = NULL;
      }
      sus_mount_unregister();
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-     /* The probe is unregistered above, so nothing new can be recorded; wait the worker
-      * out and release whatever is still recorded, or a queued namespace reference would
-      * outlive the module. */
-@@ -2303,6 +2316,7 @@
-         pr_warn("sus_mount: register_kretprobe(seq_show) failed %d - fdinfo keeps printing the real mnt_id\n", rc);
-     else
-         kr_fdinfo_ok = true;
+     sus_mount_learn_stop();
+ #endif
+     /* Marked mnt_ids are deliberately NOT restored: upstream assigns an id once
+@@ -2287,6 +2401,7 @@
+     rc = sus_mount_fdinfo_arm();
+     if (rc)
+         pr_warn("sus_mount: the fdinfo probe could not be armed %d - /proc/<pid>/fdinfo keeps printing the real mnt_id\n", rc);
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
      rc = register_kretprobe(&kr_statx);
      if (rc) {
-         pr_warn("sus_mount: register_kretprobe(__arm64_sys_statx) failed %d - statx keeps returning the real stx_mnt_id\n", rc);
-@@ -2315,6 +2329,7 @@
+         susfs_krp_forget_addr(&kr_statx);
+@@ -2301,6 +2416,7 @@
      } else {
          kr_statx_do_ok = true;
      }
@@ -349,28 +854,379 @@
      /* Optional too, but it is the ONLY thing that invalidates a record when its
       * filesystem is unmounted, and the numbers the records are keyed by do get
       * reused (measured).  A missing symbol means records can outlive their fs and
+@@ -2328,6 +2444,7 @@
+      * the module is already up (see the note above kr_newmnt).  Also optional in the
+      * sense that hiding keeps working for everything the scan saw - but without it a
+      * mount that appears later is not hidden anywhere, so a failure is reported. */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     rc = register_kretprobe(&kr_newmnt);
+     if (rc) {
+         susfs_krp_forget_addr(&kr_newmnt);
+@@ -2336,6 +2453,7 @@
+     } else {
+         kr_newmnt_ok = true;
+     }
++#endif
+     mount_registered = true;
+     mutex_unlock(&sus_mount_ctl_lock);
+     return 0;
+--- a/kernel/sus_mount_ns_iter.c
++++ b/kernel/sus_mount_ns_iter.c
+@@ -21,7 +21,7 @@
+ 	void *pos;
+ };
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0) || LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+ static struct rw_semaphore *sus_mount_ns_sem;
+ 
+ void sus_mount_ns_iter_set_sem(void *sem)
+@@ -45,16 +45,20 @@
+ 	if (!iter)
+ 		return NULL;
+ 	iter->ns = ns;
+-	rcu_read_lock();
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+ 	if (!sus_mount_ns_sem) {
+-		rcu_read_unlock();
+ 		kfree(iter);
+ 		return NULL;
+ 	}
+ 	down_read(sus_mount_ns_sem);
+ 	iter->pos = rb_first(&ns->mounts);
++#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++	if (!sus_mount_ns_sem) { kfree(iter); return NULL; }
++	/* Mount IDs are modified during scans; exclude readers too. */
++	down_write(sus_mount_ns_sem);
++	iter->pos = ns->list.next;
+ #else
++	rcu_read_lock();
+ 	spin_lock(&ns->ns_lock);
+ 	iter->pos = ns->list.next;
+ #endif
+@@ -70,6 +74,8 @@
+ 	return mnt_ns_attached(r);
+ #elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+ 	return !RB_EMPTY_NODE(&r->mnt_node);
++#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++	return true;
+ #else
+ 	return !(r->mnt.mnt_flags & MNT_CURSOR);
+ #endif
+@@ -109,9 +115,11 @@
+ 		return;
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+ 	up_read(sus_mount_ns_sem);
++#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++	up_write(sus_mount_ns_sem);
+ #else
+ 	spin_unlock(&iter->ns->ns_lock);
++	rcu_read_unlock();
+ #endif
+-	rcu_read_unlock();
+ 	kfree(iter);
+ }
+--- a/kernel/sus_mount_policy.c
++++ b/kernel/sus_mount_policy.c
+@@ -5,6 +5,7 @@
+ 
+ #include <linux/kernel.h>
+ #include <linux/types.h>
++#include <linux/version.h>
+ #include <linux/dcache.h>
+ 
+ #include "mount.h"
+@@ -18,7 +19,13 @@
+ 		return true;
+ 	if (prefix && prefix(r->mnt_devname))
+ 		return true;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++	/* A whole-filesystem bind shares (dev, root inode) with its visible source.
++	 * MuMu tracks the mount object through its owned ID and clone lifecycle. */
++	return false;
++#else
+ 	return sus_mount_ident_match(r);
++#endif
+ }
+ 
+ int __nocfi noinline sus_mount_shown_id_from(struct mount *mnt, unsigned int id_min,
 --- a/kernel/sus_path.c
 +++ b/kernel/sus_path.c
-@@ -37,6 +37,7 @@
- #include <linux/spinlock.h>
- #include <linux/namei.h>
- #include <linux/fs.h>
-+#include <linux/file.h>
- #include <linux/err.h>
- #include <linux/kprobes.h>
- #include <linux/compat.h>
-@@ -120,6 +121,10 @@
+@@ -25,6 +25,7 @@
+  * equivalent here on purpose - see the note above sus_path_inode_hidden().
+  */
+ #include <linux/module.h>
++#include <linux/kprobes.h>
+ #include <linux/delay.h>	/* ndelay, for the timing cover */
+ #include <linux/random.h>	/* prandom_u32_max, for its jitter */
+ #include <linux/tracepoint.h>
+@@ -63,6 +64,7 @@
+ 
+ #include "lsm_hook.h"
+ #include "fsnotify_lifetime.h"
++#include <linux/task_work.h>
+ 
+ /* Bounce buffer for the dirent rewrite: one record at a time, so only a single
+  * record - not a whole listing - has to fit; one that does not fit is left
+@@ -132,6 +134,7 @@
+     /* One of the module's own control nodes (/proc/susfs_*): hidden from every
+      * non-root caller, not only apps - see sus_path_entry_gate(e, NULL). */
+     bool self_protect;
++    bool loop; /* Refresh this pathname before new app tasks return to userspace. */
+     /* Pre-relax mode, 0 = this rule did not touch it (sus_path_relax_mode()). */
+     umode_t orig_mode;
+ };
+@@ -153,6 +156,10 @@
   * rule's lifetime, so it cannot be evicted and re-read with the original mode. */
  static void sus_path_relax_mode(struct sus_path_entry *e)
  {
 +#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    /* The MuMu pre-DAC hook handles hiding; never weaken stored file modes. */
++    /* MuMu checks before DAC; leave stored permissions intact. */
 +    return;
 +#endif
      umode_t mode;
  
      if (!e->inode)
-@@ -738,8 +743,10 @@
+@@ -193,6 +200,7 @@
+ /* Rules waiting for their path to appear, counted so every fast path can bail out at
+  * once; guarded by sus_path_lock. */
+ static atomic_t sus_path_n_pending = ATOMIC_INIT(0);
++static atomic_t sus_path_n_loop = ATOMIC_INIT(0);
+ static unsigned int sus_path_pass_gen;      /* guarded by sus_path_lock */
+ static atomic_t sus_path_pending_tries = ATOMIC_INIT(0);
+ /* One resolution pass at a time: the supercall and the retry timer would race on the
+@@ -206,6 +214,7 @@
+ {
+     list_move_tail(&e->list, doomed);
+     sus_path_count--;
++    if (e->loop) atomic_dec(&sus_path_n_loop);
+     if (!e->self_protect && sus_path_user_count)
+         sus_path_user_count--;
+     if (e->inode)
+@@ -396,7 +405,7 @@
+ {
+     const struct cred *old = NULL;
+ 
+-    if (atomic_read(&sus_path_n_pending))
++    if (atomic_read(&sus_path_n_pending) || atomic_read(&sus_path_n_loop))
+         return;
+ 
+     /* Re-checked under the lock: sus_path_save_caller_cred() takes this same lock, so an add that
+@@ -410,7 +419,7 @@
+      * the worker's creds (-EACCES, recorded in pend_last_rc), and the next pass one
+      * SUS_PATH_PENDING_RETRY_S later has them; the rule stays pending throughout. */
+     mutex_lock(&sus_path_cred_lock);
+-    if (!atomic_read(&sus_path_n_pending)) {
++    if (!atomic_read(&sus_path_n_pending) && !atomic_read(&sus_path_n_loop)) {
+         old = sus_path_pending_cred;
+         sus_path_pending_cred = NULL;
+     }
+@@ -448,7 +457,7 @@
+ {
+     if (!hide_from_apps)
+         return true;
+-    if (!susfs_is_current_proc_umounted_app())
++    if (!susfs_is_current_proc_umounted_app() || !mumu_path_uid_selected(current_uid().val))
+         return false;
+     return !inode || current_uid().val != inode->i_uid.val;
+ }
+@@ -515,6 +524,35 @@
+         return false;
+ 
+     return sus_path_is_hidden(ino, name);
++}
++
++/* The pre-emission actor knows its directory's superblock. Match (dev, ino)
++ * so aliases hide together and an inode number on another filesystem stays visible. */
++bool sus_path_dirent_hidden_on_sb(struct super_block *sb, u64 ino, const char *name)
++{
++    struct sus_path_entry *e;
++    bool hidden = false;
++    bool app, control;
++    uid_t uid;
++    if (!name || sus_path_is_resolver()) return false;
++    if (!READ_ONCE(sus_path_count))
++        return hide_name[0] && !strcmp(name, hide_name);
++    app = susfs_is_current_proc_umounted_app() && mumu_path_uid_selected(current_uid().val);
++    control = susfs_control_visible();
++    uid = current_uid().val;
++    spin_lock(&sus_path_lock);
++    list_for_each_entry(e, &sus_path_list, list) {
++        if (!e->inode || !e->ino || e->ino != ino) continue;
++        if (e->dev != (u64)sb->s_dev &&
++            !(e->self_protect && e->inode->i_sb->s_type == sb->s_type)) continue;
++        if ((e->self_protect && !control) ||
++            (!e->self_protect && (!hide_from_apps || (app && uid != e->inode->i_uid.val)))) {
++            hidden = true;
++            break;
++        }
++    }
++    spin_unlock(&sus_path_lock);
++    return hidden || (hide_name[0] && !strcmp(name, hide_name));
+ }
+ 
+ /* ---- deferred resolution: upstream's CMD_SUSFS_ADD_SUS_PATH_LOOP ----
+@@ -546,17 +584,20 @@
+     strscpy(dst, path, size);
+ }
+ 
+-static int sus_path_resolve_pending(void)
++static int sus_path_resolve_pending(bool wait)
+ {
+     char path[SUS_PATH_LEN];
+     unsigned int gen;
+-    int budget = SUS_PATH_PENDING_BUDGET;
++    int budget = wait ? SUS_PATH_MAX_ENTRIES : SUS_PATH_PENDING_BUDGET;
+     int resolved = 0;
+ 
+-    if (READ_ONCE(sus_path_stopping) || !atomic_read(&sus_path_n_pending))
++    if (READ_ONCE(sus_path_stopping) ||
++        (!atomic_read(&sus_path_n_pending) && !atomic_read(&sus_path_n_loop)))
+         return 0;
+     /* trylock: the supercall must never block behind a pass sleeping in kern_path(). */
+-    if (!mutex_trylock(&sus_path_pending_lock))
++    if (wait)
++        mutex_lock(&sus_path_pending_lock);
++    else if (!mutex_trylock(&sus_path_pending_lock))
+         return 0;
+     if (READ_ONCE(sus_path_stopping)) {
+         mutex_unlock(&sus_path_pending_lock);
+@@ -573,7 +614,7 @@
+ 
+     while (budget-- > 0) {
+         struct sus_path_entry *e, *slot;
+-        struct inode *inode = NULL;
++        struct inode *inode = NULL, *old_inode = NULL;
+         const struct cred *saved;
+         const struct cred *borrowed = NULL;
+         struct path p;
+@@ -586,7 +627,7 @@
+         spin_lock(&sus_path_lock);
+         slot = NULL;
+         list_for_each_entry(e, &sus_path_list, list) {
+-            if (!e->inode && e->pass != gen) {
++            if ((!e->inode || e->loop) && e->pass != gen) {
+                 memcpy(path, e->path, e->path_len + 1);
+                 e->pass = gen;
+                 slot = e;
+@@ -633,12 +674,14 @@
+         spin_lock(&sus_path_lock);
+         slot = NULL;
+         list_for_each_entry(e, &sus_path_list, list) {
+-            if (!sus_path_stopping && e->pass == gen && !e->inode &&
++            if (!sus_path_stopping && e->pass == gen && (!e->inode || e->loop) &&
+                 !strcmp(e->path, path)) {
+                 slot = e;
+                 break;
+             }
+         }
++        if (slot && slot->inode == inode)
++            slot = NULL; /* Already current; drop the temporary reference below. */
+         if (slot && inode && READ_ONCE(sus_path_lifetime_watch)) {
+             spin_unlock(&sus_path_lock);
+             rc = susfs_sb_watch_add(inode->i_sb);
+@@ -647,13 +690,19 @@
+             spin_lock(&sus_path_lock);
+         }
+         if (slot && inode && !rc) {
++            old_inode = slot->inode;
++            if (old_inode) {
++                sus_path_restore_mode(slot);
++                sus_path_iop_restore(slot);
++            } else {
++                atomic_dec(&sus_path_n_pending);
++            }
+             slot->sb = inode->i_sb;
+             slot->dev = (u64)inode->i_sb->s_dev;
+             slot->ino = (u64)inode->i_ino;
+             strscpy(slot->name, name, sizeof(slot->name));
+             slot->inode = inode;
+             inode = NULL;               /* the table holds the reference now */
+-            atomic_dec(&sus_path_n_pending);
+             resolved++;
+             published = true;
+             /* Relax INSIDE the section that owns `slot`.  `slot` is a raw pointer into the
+@@ -672,6 +721,8 @@
+         spin_unlock(&sus_path_lock);
+         mutex_unlock(&sus_path_lifecycle_lock);
+ 
++        if (old_inode)
++            iput(old_inode);
+         if (inode) {
+             iput(inode);                /* the rule is gone, or already resolved */
+         } else if (!published && !rc) {
+@@ -702,7 +753,7 @@
+     if (READ_ONCE(sus_path_stopping) || !atomic_read(&sus_path_n_pending))
+         return;
+ 
+-    sus_path_resolve_pending();
++    sus_path_resolve_pending(false);
+     spin_lock(&sus_path_lock);
+     if (!sus_path_stopping && atomic_read(&sus_path_n_pending)) {
+         atomic_set(&sus_path_pending_tries, 0);
+@@ -724,7 +775,7 @@
+     if (READ_ONCE(sus_path_stopping))
+         return;
+     atomic_inc(&sus_path_pend_ticks);
+-    resolved = sus_path_resolve_pending();
++    resolved = sus_path_resolve_pending(false);
+ 
+     if (!atomic_read(&sus_path_n_pending))
+         return;                 /* every rule has its inode now */
+@@ -743,6 +794,39 @@
+         schedule_delayed_work(&sus_path_pending_wq, SUS_PATH_PENDING_RETRY_S * HZ);
+     spin_unlock(&sus_path_lock);
+ }
++
++/* Match canonical's app-specialization trigger without modifying task flags.
++ * task_work runs in process context before the new UID returns to userspace, so
++ * pathname resolution can sleep and all loop rules are refreshed before app I/O.
++ */
++struct mumu_loop_work { struct callback_head work; };
++static atomic_t mumu_loop_workers = ATOMIC_INIT(0);
++static DECLARE_WAIT_QUEUE_HEAD(mumu_loop_wait);
++static void mumu_loop_resolve(struct callback_head *head)
++{
++    mumu_uid_refresh();
++    sus_path_resolve_pending(true);
++    kfree(container_of(head, struct mumu_loop_work, work));
++    if (atomic_dec_and_test(&mumu_loop_workers)) wake_up_all(&mumu_loop_wait);
++}
++static int mumu_loop_setuid(struct cred *new, const struct cred *old, int flags)
++{
++    struct mumu_loop_work *work;
++    int rc;
++    if (uid_eq(new->uid, old->uid) || new->uid.val < 10000 ||
++        (!atomic_read(&sus_path_n_loop) && !mumu_uid_filters_active()) || READ_ONCE(sus_path_stopping)) return 0;
++    work = kmalloc(sizeof(*work), GFP_ATOMIC);
++    if (!work) return -ENOMEM;
++    init_task_work(&work->work, mumu_loop_resolve);
++    atomic_inc(&mumu_loop_workers);
++    rc = task_work_add(current, &work->work, TWA_RESUME);
++    if (rc) {
++        kfree(work);
++        if (atomic_dec_and_test(&mumu_loop_workers)) wake_up_all(&mumu_loop_wait);
++    }
++    return rc;
++}
++static struct ksu_lsm_hook mumu_loop_hook = KSU_LSM_HOOK_INSERT(task_fix_setuid, mumu_loop_setuid);
+ 
+ /* ---------------------------------------------------------------------------
+  * LSM hooks - make path-based access report ENOENT.
+@@ -1009,10 +1093,12 @@
+ 	return fn(SUS_XATTR_MNT_ID_ARG dentry, name);
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
+ SUS_LSM_ORIG_CALL(path_notify, const struct path *path, u64 mask,
+ 		  unsigned int obj_type)
+ {
+ 	return fn(path, mask, obj_type);
++#endif
+ }
+ #endif	/* >= 6.12: the slot-takeover path is the only one that calls an original */
+ 
+@@ -1026,8 +1112,10 @@
  				   const void *value, size_t size, int flags);
  static int sus_path_inode_removexattr(SUS_XATTR_MNT_ID_DECL
  				      struct dentry *dentry, const char *name);
@@ -381,7 +1237,7 @@
  
  static_assert(__builtin_types_compatible_p(LSM_HOOK_FN_TYPE(sb_statfs),
  					   typeof(&sus_path_sb_statfs)),
-@@ -759,9 +766,11 @@
+@@ -1047,9 +1135,11 @@
  static_assert(__builtin_types_compatible_p(LSM_HOOK_FN_TYPE(inode_removexattr),
  					   typeof(&sus_path_inode_removexattr)),
  	      "inode_removexattr hook signature mismatch");
@@ -393,7 +1249,7 @@
  
  static struct ksu_lsm_hook sus_path_statfs_hook =
  	KSU_LSM_HOOK_INSERT(sb_statfs, (void *)sus_path_sb_statfs);
-@@ -781,8 +790,10 @@
+@@ -1069,8 +1159,10 @@
  static struct ksu_lsm_hook sus_path_removexattr_hook =
  	KSU_LSM_HOOK_INSERT(inode_removexattr, (void *)sus_path_inode_removexattr);
  
@@ -404,114 +1260,16 @@
  
  static struct ksu_lsm_hook sus_path_getattr_hook =
  	KSU_LSM_HOOK_INSERT(inode_getattr, (void *)sus_path_inode_getattr);
-@@ -897,6 +908,106 @@
-     return hidden;
- }
- 
-+/* MuMu 4.19 retains the filldir actors as real symbols. Filter before the
-+ * kernel writes a dirent into shared userspace memory, avoiding a post-copy race.
-+ * O_PATH bypasses inode_permission; discard its opened file before fd_install.
-+ * The latter uses a bounded kretprobe; expose misses instead of promising perfect
-+ * concealment under arbitrary concurrency. fput defers final release on 4.19. */
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+static atomic_t n_early_dirent = ATOMIC_INIT(0);
-+static atomic_t n_opath_denied = ATOMIC_INIT(0);
-+static atomic_t n_permission_denied = ATOMIC_INIT(0);
-+static bool legacy_fill_armed[4];
-+static bool legacy_open_armed;
-+static int legacy_filldir_pre(struct kprobe *kp, struct pt_regs *regs)
-+{
-+    char name[NAME_MAX + 1];
-+    int len = (int)regs->regs[2];
-+    if (len < 1 || len > NAME_MAX || !READ_ONCE(sus_path_count))
-+        return 0;
-+    if (probe_kernel_read(name, (const void *)regs->regs[1], len))
-+        return 0;
-+    name[len] = '\0';
-+    if (!sus_path_is_hidden((u64)regs->regs[4], name))
-+        return 0;
-+    atomic_inc(&n_early_dirent);
-+    regs->regs[0] = 0;
-+    regs->pc = regs->regs[30];
-+    return 1;
-+}
-+static int legacy_permission_pre(struct kprobe *kp, struct pt_regs *regs)
-+{
-+    struct inode *inode = (struct inode *)regs->regs[0];
-+    if (!inode || !sus_path_inode_hidden(inode))
-+        return 0;
-+    atomic_inc(&n_permission_denied);
-+    regs->regs[0] = (unsigned long)-ENOENT;
-+    regs->pc = regs->regs[30];
-+    return 1;
-+}
-+static struct kprobe legacy_fill_probes[] = {
-+    { .symbol_name = "filldir64", .pre_handler = legacy_filldir_pre },
-+    { .symbol_name = "compat_filldir", .pre_handler = legacy_filldir_pre },
-+    { .symbol_name = "filldir", .pre_handler = legacy_filldir_pre },
-+    { .symbol_name = "inode_permission", .pre_handler = legacy_permission_pre },
-+};
-+static int legacy_open_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
-+{
-+    struct file *file = (struct file *)regs_return_value(regs);
-+    if (IS_ERR_OR_NULL(file) || !(file->f_mode & FMODE_PATH) ||
-+        !sus_path_inode_hidden(file_inode(file)))
-+        return 0;
-+    regs_set_return_value(regs, (unsigned long)ERR_PTR(-ENOENT));
-+    fput(file);
-+    atomic_inc(&n_opath_denied);
-+    return 0;
-+}
-+static struct kretprobe legacy_open_probe = {
-+    .kp.symbol_name = "do_filp_open",
-+    .handler = legacy_open_ret,
-+    .maxactive = 256,
-+};
-+static int legacy_path_stats(char *buf, const struct kernel_param *kp)
-+{
-+    return scnprintf(buf, PAGE_SIZE, "precopy_hidden=%d opath_denied=%d open_missed=%d fill_missed=%lu/%lu/%lu perm_denied=%d perm_missed=%lu\n",
-+        atomic_read(&n_early_dirent), atomic_read(&n_opath_denied),
-+        legacy_open_probe.nmissed, legacy_fill_probes[0].nmissed,
-+        legacy_fill_probes[1].nmissed, legacy_fill_probes[2].nmissed,
-+        atomic_read(&n_permission_denied), legacy_fill_probes[3].nmissed);
-+}
-+static const struct kernel_param_ops legacy_path_stats_ops = { .get = legacy_path_stats };
-+module_param_cb(legacy_path_stats, &legacy_path_stats_ops, NULL, 0400);
-+static void legacy_path_hooks_exit(void)
-+{
-+    int i;
-+    if (legacy_open_armed) {
-+        unregister_kretprobe(&legacy_open_probe);
-+        legacy_open_armed = false;
-+    }
-+    for (i = ARRAY_SIZE(legacy_fill_probes) - 1; i >= 0; --i)
-+        if (legacy_fill_armed[i]) {
-+            unregister_kprobe(&legacy_fill_probes[i]);
-+            legacy_fill_armed[i] = false;
-+        }
-+}
-+static int legacy_path_hooks_init(void)
-+{
-+    int i, rc;
-+    for (i = 0; i < ARRAY_SIZE(legacy_fill_probes); ++i) {
-+        rc = register_kprobe(&legacy_fill_probes[i]);
-+        if (rc) goto fail;
-+        legacy_fill_armed[i] = true;
-+    }
-+    rc = register_kretprobe(&legacy_open_probe);
-+    if (rc) goto fail;
-+    legacy_open_armed = true;
-+    return 0;
-+fail:
-+    legacy_path_hooks_exit();
-+    return rc;
-+}
-+#endif
-+
- static int sus_path_inode_getattr(const struct path *path)
- {
-     struct inode *inode;
-@@ -1053,6 +1164,7 @@
+@@ -1151,7 +1243,7 @@
+     v->self_protect = f->self_protect;
+     v->user_rule = f->user_rule;
+     v->caller_uid = current_uid().val;
+-    v->caller_is_app = susfs_is_current_proc_umounted_app();
++    v->caller_is_app = susfs_is_current_proc_umounted_app() && mumu_path_uid_selected(current_uid().val);
+     v->caller_is_su = susfs_control_visible();
+     v->hide_from_apps = sus_path_hide_from_apps();
+     v->control_visible = susfs_control_visible();
+@@ -1666,6 +1758,7 @@
      return 0;
  }
  
@@ -519,153 +1277,1500 @@
  static int sus_path_path_notify(const struct path *path, u64 mask, unsigned int obj_type)
  {
      /* inotify_add_watch and fanotify_mark arrive here; their callers do not run an
-@@ -1062,6 +1174,7 @@
+@@ -1675,6 +1768,7 @@
      SUS_LSM_PASS_ORIG(sus_path_notify_hook, path_notify, path, mask, obj_type);
      return 0;
  }
 +#endif
  
  /* Every hook below the LSM layer is only worth its cost once something is registered: kprobe
-  * entry costs a brk trap per hit.  With no rules there is nothing to answer, so they are armed on
-@@ -1285,6 +1398,10 @@
- static void sus_path_dirent_register(void)
- {
-     int i, c = 0;
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    /* Required pre-copy actors were registered during init, not a fallback. */
-+    return;
-+#endif
+  * entry costs a brk trap per hit.  With no rules there is nothing to answer, so they used to be
+@@ -2589,6 +2683,10 @@
+     list_for_each_entry(cur, &sus_path_list, list) {
+         if ((e->inode && cur->inode == e->inode) ||
+             (!e->inode && !cur->inode && !strcmp(cur->path, e->path))) {
++            if (e->loop && !cur->loop && !strcmp(cur->path, e->path)) {
++                cur->loop = true;
++                atomic_inc(&sus_path_n_loop);
++            }
+             rc = 1;
+             goto out;
+         }
+@@ -2618,6 +2716,7 @@
+     }
+     list_add_tail(&e->list, &sus_path_list);
+     sus_path_count++;
++    if (e->loop) atomic_inc(&sus_path_n_loop);
+     if (!e->self_protect)
+         sus_path_user_count++;
+     if (e->inode)
+@@ -2693,6 +2792,32 @@
+ 	return sus_path_getattr_hook.entry && sus_path_perm_hook.entry;
+ }
  
-     for (i = 0; i < SUS_DIRENT_N; i++) {
-         char tried[192];
-@@ -2083,7 +2200,9 @@
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++static atomic_t n_mumu_permission_denied = ATOMIC_INIT(0);
++static bool mumu_permission_armed;
++static int mumu_permission_pre(struct kprobe *kp, struct pt_regs *regs)
++{
++    struct inode *inode = (struct inode *)regs->regs[0];
++    if (!inode || !sus_path_inode_hidden_public(inode))
++        return 0;
++    atomic_inc(&n_mumu_permission_denied);
++    regs->regs[0] = (unsigned long)-ENOENT;
++    regs->pc = regs->regs[30];
++    return 1;
++}
++static struct kprobe mumu_permission_probe = {
++    .symbol_name = "inode_permission", .pre_handler = mumu_permission_pre,
++};
++static int mumu_path_stats(char *buf, const struct kernel_param *kp)
++{
++    return scnprintf(buf, PAGE_SIZE, "precopy_hidden=%d perm_denied=%d perm_missed=%lu\n",
++        susfs_dirent_filtered(), atomic_read(&n_mumu_permission_denied),
++        mumu_permission_probe.nmissed);
++}
++static const struct kernel_param_ops mumu_path_stats_ops = { .get = mumu_path_stats };
++module_param_cb(legacy_path_stats, &mumu_path_stats_ops, NULL, 0400);
++#endif
++
+ int sus_path_init(void)
+ {
+     int rc;
+@@ -2764,7 +2889,9 @@
              &sus_path_statfs_hook, &sus_path_setattr_hook,
              &sus_path_getxattr_hook, &sus_path_listxattr_hook,
              &sus_path_setxattr_hook, &sus_path_removexattr_hook,
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
              &sus_path_notify_hook,
 +#endif
+             &sus_path_readlink_hook,
          };
          int i;
- 
-@@ -2114,6 +2233,14 @@
+@@ -2796,6 +2923,14 @@
       * One of them also caused an FPAC panic, which is why they are not restored in
       * their former shape. */
  
 +#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    rc = legacy_path_hooks_init();
-+    if (rc) {
-+        pr_err("sus_path: required MuMu path/listing hooks failed %d\n", rc);
-+        return rc;
-+    }
++    rc = register_kprobe(&mumu_permission_probe);
++    if (rc) return rc;
++    mumu_permission_armed = true;
++    rc = ksu_register_lsm_hook(&mumu_loop_hook);
++    if (rc) return rc;
 +#endif
 +
      /* The control node goes up LAST, and only when the layer that hides it is really installed
       * (susfs_control_node_allowed()): a 0777 world-writable node without the thing that answers
       * ENOENT for it must not exist.  It has to be created before susfs_self_hide_nodes() runs,
-@@ -2145,6 +2272,9 @@
-     /* Unregister the hooks FIRST: after this nothing can match, so the entries (and their inode
-      * references) can be torn down safely.  Only the dirent kretprobes are armed after init. */
-     sus_path_dirent_unregister();
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    legacy_path_hooks_exit();
-+#endif
+@@ -2836,6 +2971,15 @@
  
-     /* The retry timer must be off and no resolution pass may be in flight while the table is
-      * emptied below: a pass re-finds its entry under the lock and never frees anything, but it
-@@ -2163,7 +2293,9 @@
+ void sus_path_exit(void)
+ {
++    if (mumu_loop_hook.entry) ksu_unregister_lsm_hook(&mumu_loop_hook);
++    wait_event(mumu_loop_wait, !atomic_read(&mumu_loop_workers));
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    if (mumu_permission_armed) {
++        unregister_kprobe(&mumu_permission_probe);
++        mumu_permission_armed = false;
++    }
++#endif
++
+     mutex_lock(&sus_path_lifecycle_lock);
+     spin_lock(&sus_path_lock);
+     WRITE_ONCE(sus_path_stopping, true);
+@@ -2878,7 +3022,9 @@
              &sus_path_statfs_hook, &sus_path_setattr_hook,
              &sus_path_getxattr_hook, &sus_path_listxattr_hook,
              &sus_path_setxattr_hook, &sus_path_removexattr_hook,
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
              &sus_path_notify_hook,
 +#endif
+             &sus_path_readlink_hook,
          };
          int i;
- 
+@@ -2959,6 +3105,7 @@
+         info.err = -ENOMEM;
+         goto out;
+     }
++    e->loop = pending_ok;
+     if (inode) {
+         e->sb = inode->i_sb;
+         e->dev = (u64)inode->i_sb->s_dev;
+@@ -2998,7 +3145,7 @@
+             pr_warn("sus_path: dirent scratch buffer unavailable, listings remain unfiltered\n");
+     }
+     sus_path_hooks_arm();
+-    if (!inode) {
++    if (!inode || pending_ok) {
+         sus_path_save_caller_cred();
+         sus_path_pending_arm();
+     }
 --- a/kernel/susfs.h
 +++ b/kernel/susfs.h
-@@ -5,7 +5,8 @@
- #include <linux/string.h>
- #include <linux/err.h>	/* IS_ERR */
- #include <linux/mm.h>	/* PAGE_SIZE */
--#include <linux/version.h>	/* LINUX_VERSION_CODE for the pre-5.10 shims below */
-+#include <linux/version.h>
-+#include <linux/ratelimit.h>	/* LINUX_VERSION_CODE for the pre-5.10 shims below */
+@@ -74,8 +74,11 @@
+ long sus_path_dirent_filter(int lay_id, unsigned long buf, long ret);
+ /* Pre-emission dirent filter (sus_dirent.c): a hidden name is never written to the caller. */
+ bool sus_path_dirent_hidden(u64 ino, const char *name);
++struct super_block;
++bool sus_path_dirent_hidden_on_sb(struct super_block *sb, u64 ino, const char *name);
+ __nocfi bool susfs_dirent_prefilter(const struct pt_regs *regs, long *out,
+ 					bool compat);
++int susfs_dirent_filtered(void);
+ int susfs_sus_dirent_init(void);
+ void susfs_sus_dirent_exit(void);
  
- /* ---- pre-5.10 portability shims (legacy branch; see LEGACY_PORTING.md) ----
-  *
-@@ -21,6 +22,14 @@
-  * exist there and every gate below is false.
-  */
- #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+/* This target provides /proc/cmdline, without the newer bootconfig subsystem. */
-+#define saved_boot_config saved_command_line
-+#ifndef static_assert
-+#define static_assert(expr, ...) _Static_assert(expr, #expr)
-+#include <asm/ptrace.h>
-+#define regs_set_return_value(r, value) ((r)->regs[0] = (value))
-+#define regs_get_kernel_argument(r, n) ((n) < 8 ? (r)->regs[(n)] : 0)
-+#endif
- /* struct proc_ops does not exist before 5.6: proc_create() takes a file_operations
-  * (v5.5 include/linux/proc_fs.h:49) and proc_ops appears in v5.6 (:15) with the changed
-  * prototype (:64).  Only the fields this module uses are mapped. */
-@@ -169,3 +178,8 @@
- bool susfs_open_redirect_spoof_ids(unsigned long ino, unsigned long *out_ino, unsigned long *out_mnt_id);
+@@ -91,7 +94,7 @@
+ 
+ /* The build's version string.  It lives here rather than in susfs_main.c because imports_guard.c
+  * reports it when it refuses a load - and that happens before susfs_main.c prints its banner. */
+-#define SUSFS_LKM_VERSION "2.3.0-gki"
++#define SUSFS_LKM_VERSION "2.3.0-mumu4.19"
+ 
+ /* hide_modules (susfs_hide_syms.c): filters module NAMES out of /proc/modules (plus /sys/module and /proc/kallsyms for
+  * non-root callers).  Node and same-named parameter are root-only; the node answers ENOENT through sus_path's hidden set. */
+@@ -165,6 +168,8 @@
+ 	SUSFS_FEAT_OPEN_REDIRECT,
+ 	SUSFS_FEAT_SUS_MAP,
+ 	SUSFS_FEAT_AVC_SPOOF,	/* commands only: no upstream CONFIG_* line for it */
++	SUSFS_FEAT_UID_FILTER,
++	SUSFS_FEAT_OVERLAY,
+ 	SUSFS_FEAT_COUNT,
+ };
+ 
+@@ -266,3 +271,8 @@
+ void susfs_create_gate_exit(void);
  
  #endif
 +
-+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+/* 4.19 task_work_add(true) sets TIF_NOTIFY_RESUME. */
-+#define TWA_RESUME true
-+#endif
++void mumu_uid_filter_supercall(unsigned int cmd, void __user **arg);
++bool mumu_path_uid_selected(uid_t uid);
++bool mumu_uid_filters_active(void);
++void mumu_uid_refresh(void);
 --- a/kernel/susfs_abi.h
 +++ b/kernel/susfs_abi.h
-@@ -60,7 +60,7 @@
+@@ -22,6 +22,8 @@
+ #define CMD_SUSFS_SET_ANDROID_DATA_ROOT_PATH    0x55551 /* deprecated */
+ #define CMD_SUSFS_SET_SDCARD_ROOT_PATH          0x55552 /* deprecated */
+ #define CMD_SUSFS_ADD_SUS_PATH_LOOP             0x55553
++#define CMD_SUSFS_SET_SUS_PATH_UID_FILTER       0x55554
++#define CMD_SUSFS_SET_PRIORITY_UID_FILTER       0x60030
+ #define CMD_SUSFS_ADD_SUS_MOUNT                 0x55560 /* deprecated */
+ #define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561
+ #define CMD_SUSFS_UMOUNT_FOR_ZYGOTE_ISO_SERVICE 0x55562 /* deprecated */
+@@ -59,8 +61,8 @@
+ #define SUSFS_MAX_VERSION_BUFSIZE               16
  #define SUSFS_MAX_VARIANT_BUFSIZE               16
  
- #define SUSFS_VERSION_STR "v2.3.0"
--#define SUSFS_VARIANT_STR "GKI"
+-#define SUSFS_VERSION_STR "v2.3.0"
+-#define SUSFS_VARIANT_STR "GKI-LKM"
++#define SUSFS_VERSION_STR "v2.4.0"
 +#define SUSFS_VARIANT_STR "NON-GKI"
  
  /* uid_scheme values of struct st_susfs_open_redirect (upstream enum UID_SCHEME, declared in
   * susfs.h next to the structs) */
---- a/kernel/susfs_kstat.c
-+++ b/kernel/susfs_kstat.c
-@@ -667,7 +667,7 @@
+--- a/kernel/susfs_create_vfs.c
++++ b/kernel/susfs_create_vfs.c
+@@ -30,10 +30,15 @@
  
- 	if (ret != 0)
- 		return;
--	syscall_get_arguments(current, regs, args);
-+	syscall_get_arguments(current, regs, 0, 6, args);
- 	nr = syscall_get_nr(current, regs);
- 
- 	/* The statbuf argument is NOT the same one for every syscall, so the NULL check has to live
---- a/kernel/susfs_main.c
-+++ b/kernel/susfs_main.c
-@@ -13,7 +13,7 @@
- #include "lsm_hook.h"
- #include "susfs.h"
- 
--#define SUSFS_LKM_VERSION "2.3.0-gki"
-+#define SUSFS_LKM_VERSION "2.3.0-mumu4.19"
- /* The module's own name lives in susfs.h (SUSFS_LKM_MODULE_NAME / SUSFS_LKM_SYSFS_DIR):
-  * /sys/module's directory and the rules that hide it (susfs_hide_syms.c) must agree. */
- 
-@@ -164,6 +164,10 @@
-     /* Registered last and undone implicitly: these are entries in sus_path's table, which
-      * sus_path_exit() empties while its LSM layer still answers ENOENT for the nodes. */
-     susfs_self_hide_nodes();
+ static struct filename *(*create_getname_fn)(const char __user *name, int flags, int *empty);
+ static void (*create_putname_fn)(struct filename *name);
 +#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-+    /* Legacy file_operations have no procfs rundown guarantees. Recover by reboot. */
-+    try_module_get(THIS_MODULE);
++static struct filename *(*create_filename_parentat_fn)(int, struct filename *, unsigned int,
++                                                       struct path *, struct qstr *, int *);
++#else
+ static int (*create_filename_parentat_fn)(int dfd, struct filename *name,
+                                           unsigned int flags, struct path *parent,
+                                           struct qstr *last, int *type,
+                                           const struct path *root);
++#endif
+ static struct dentry *(*create_lookup_one_qstr_excl_fn)(const struct qstr *name,
+                                                         struct dentry *base,
+                                                         unsigned int flags);
+@@ -150,18 +155,34 @@
+ 	}
+ }
+ 
+-static __nocfi noinline int create_parentat(int dfd, struct filename *name,
+-					     struct path *parent, struct qstr *last,
+-					     int *type)
+-{
+-	return create_filename_parentat_fn(dfd, name, 0, parent, last, type, NULL);
++static __nocfi noinline int create_parentat(int dfd, struct filename **name,
++                                         struct path *parent, struct qstr *last, int *type)
++{
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    /* 4.19 consumes the filename on failure and returns it on success. */
++    struct filename *result = create_filename_parentat_fn(dfd, *name, 0, parent, last, type);
++    if (IS_ERR(result)) {
++        *name = NULL;
++        return PTR_ERR(result);
++    }
++    *name = result;
++    return 0;
++#else
++    return create_filename_parentat_fn(dfd, *name, 0, parent, last, type, NULL);
++#endif
+ }
+ 
+ static __nocfi noinline struct dentry *create_lookup_excl(const struct qstr *last,
+ 							  struct dentry *parent)
+ {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    /* Caller already holds the parent's inode lock, as lookup_one_len requires.
++     * This lookup is for the hiding check; mkdir takeover stays unavailable. */
++    return lookup_one_len(last->name, parent, last->len);
++#else
+ 	return create_lookup_one_qstr_excl_fn(last, parent,
+ 					      LOOKUP_CREATE | LOOKUP_EXCL);
++#endif
+ }
+ 
+ struct susfs_create_op *susfs_create_vfs_begin(int dfd, const char __user *path,
+@@ -190,7 +211,7 @@
+ 	}
+ 	op->state = CREATE_OP_GETNAME;
+ 
+-	op->err = create_parentat(dfd, op->name, &op->parent, &op->last,
++	op->err = create_parentat(dfd, &op->name, &op->parent, &op->last,
+ 				  &op->type);
+ 	if (op->err) {
+ 		op->state = CREATE_OP_ERROR;
+--- a/kernel/susfs_hide_syms.c
++++ b/kernel/susfs_hide_syms.c
+@@ -515,7 +515,9 @@
+ #endif
+ 	loff_t pos_mod_end;
+ 	loff_t pos_ftrace_mod_end;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+ 	loff_t pos_bpf_end;
++#endif
+ 	unsigned long value;
+ 	unsigned int nameoff;
+ 	char type;
+@@ -524,6 +526,13 @@
+ 	int exported;
+ 	int show_value;
+ };
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
++/* MuMu's measured 4.19 layout predates BPF kallsyms iteration. */
++static_assert(offsetof(struct kallsym_iter_local, type) == 44);
++static_assert(offsetof(struct kallsym_iter_local, name) == 45);
++static_assert(offsetof(struct kallsym_iter_local, module_name) == 173);
 +#endif
  
-     /* Operator note.  The module hides its own traces from EVERY caller, root included (a
-      * built-in SUSFS has no module entry, so hiding it only from non-root would leave a
-@@ -218,4 +222,4 @@
+ /* prefixes to hide (matches upstream's list) */
+ static const char *const hide_prefixes[] = {
+@@ -592,7 +601,11 @@
+ 	if (!m || (kallsyms_op_target && m->op != kallsyms_op_target) || !m->private)
+ 		return false;
+ 	iter = (struct kallsym_iter_local *)m->private;
+-	if (!hide_syms_iter_plausible(iter) || !iter->name[0])
++	if (!hide_syms_iter_plausible(iter)) {
++		atomic_inc(&hide_layout_bad);
++		return false;
++	}
++	if (!iter->name[0])
+ 		return false;
+ 	if (name_should_hide(iter->name)) {
+ 		atomic_inc(&hide_hit_count);
+@@ -622,18 +635,23 @@
+ {
+ 	if (hide_s_should_hide(m))
+ 		return 0;
+-	return hide_s_orig ? hide_s_orig(m, p) : 0;
++	return ((hide_syms_show_fn)READ_ONCE(hide_s_hook.orig))(m, p);
+ }
+ 
+ int __nocfi hide_syms_m_show_wrap(struct seq_file *m, void *p)
+ {
+ 	if (hide_m_should_hide(m, p))
+ 		return 0;
+-	return hide_m_orig ? hide_m_orig(m, p) : 0;
+-}
+-
++	return ((hide_syms_show_fn)READ_ONCE(hide_m_hook.orig))(m, p);
++}
++
++extern unsigned long mumu_getattr_symbol(const char *name);
++extern int mumu_getattr_init(void);
++extern void mumu_getattr_exit(void);
+ static unsigned long hide_syms_hk_resolve(const char *name)
+ {
++    unsigned long mumu = mumu_getattr_symbol(name);
++    if (mumu) return mumu;
+ 	if (!strcmp(name, "hide_syms_s_show_wrap"))
+ 		return (unsigned long)hide_syms_s_show_wrap;
+ 	if (!strcmp(name, "hide_syms_m_show_wrap"))
+@@ -904,6 +922,8 @@
+ 			SUSFS_LOGI("susfs_hide_syms: m_show inline at %px\n", (void *)hide_m_hook.addr);
+ 		}
+ 	}
++	rc = mumu_getattr_init();
++	if (rc) return rc;
+ 	/* hide_modules starts with just this module in its list: a built-in SUSFS has no module entry, so leaving ours visible
+ 	 * would be a trace upstream does not have.  The sysfs rule can only be registered now, because sus_path is up (this
+ 	 * layer is last in the init table).
+@@ -945,6 +965,7 @@
+ 
+ void susfs_hide_syms_exit(void)
+ {
++    mumu_getattr_exit();
+ 	if (hide_modules_entry) {
+ 		proc_remove(hide_modules_entry);
+ 		hide_modules_entry = NULL;
+--- a/kernel/susfs_kstat.c
++++ b/kernel/susfs_kstat.c
+@@ -518,6 +518,46 @@
+ 	kstat_maps_registered = false;
+ 	mutex_unlock(&kstat_maps_ctl_lock);
+ }
++
++/* MuMu's GCC 4.19 vfs_getattr is an out-of-line body. Rewrite its kernel
++ * kstat before any syscall copies it to userspace, closing the post-copy window.
++ * Keep syscall wrappers for directory filtering and compatibility diagnostics. */
++#include "HooKern/hk_inline.h"
++static struct hk_inline mumu_getattr_hook;
++extern bool mumu_open_redirect_kstat(struct inode *, struct kstat *);
++typedef int (*mumu_getattr_fn)(const struct path *, struct kstat *, u32, unsigned int);
++static int mumu_getattr_wrap(const struct path *path, struct kstat *stat, u32 mask, unsigned int flags)
++{
++    struct sus_kstat_snapshot snap;
++    int rc = ((mumu_getattr_fn)READ_ONCE(mumu_getattr_hook.orig))(path, stat, mask, flags);
++    if (rc) return rc;
++    mumu_open_redirect_kstat(d_backing_inode(path->dentry), stat);
++    if (!susfs_kstat_gate_ok() ||
++        !susfs_kstat_lookup(stat->ino, new_encode_dev(stat->dev), &snap) ||
++        !susfs_kstat_rule_allows(&snap)) return 0;
++    if (snap.flags & KSTAT_SPOOF_INO) stat->ino = snap.spoofed_ino;
++    if (snap.flags & KSTAT_SPOOF_DEV) stat->dev = new_decode_dev(snap.spoofed_dev);
++    if (snap.flags & KSTAT_SPOOF_NLINK) stat->nlink = snap.spoofed_nlink;
++    if (snap.flags & KSTAT_SPOOF_SIZE) stat->size = snap.spoofed_size;
++    if (snap.flags & KSTAT_SPOOF_BLOCKS) stat->blocks = snap.spoofed_blocks;
++    if (snap.flags & KSTAT_SPOOF_BLKSIZE) stat->blksize = snap.spoofed_blksize;
++    if (snap.flags & KSTAT_SPOOF_ATIME_TV_SEC) stat->atime.tv_sec = snap.spoofed_atime_tv_sec;
++    if (snap.flags & KSTAT_SPOOF_ATIME_TV_NSEC) stat->atime.tv_nsec = snap.spoofed_atime_tv_nsec;
++    if (snap.flags & KSTAT_SPOOF_MTIME_TV_SEC) stat->mtime.tv_sec = snap.spoofed_mtime_tv_sec;
++    if (snap.flags & KSTAT_SPOOF_MTIME_TV_NSEC) stat->mtime.tv_nsec = snap.spoofed_mtime_tv_nsec;
++    if (snap.flags & KSTAT_SPOOF_CTIME_TV_SEC) stat->ctime.tv_sec = snap.spoofed_ctime_tv_sec;
++    if (snap.flags & KSTAT_SPOOF_CTIME_TV_NSEC) stat->ctime.tv_nsec = snap.spoofed_ctime_tv_nsec;
++    return 0;
++}
++unsigned long mumu_getattr_symbol(const char *name)
++{
++    return !strcmp(name, "mumu_getattr_wrap") ? (unsigned long)mumu_getattr_wrap : 0;
++}
++int mumu_getattr_init(void)
++{
++    return hk_inline_hook(&mumu_getattr_hook, "vfs_getattr", "mumu_getattr_wrap");
++}
++void mumu_getattr_exit(void) { hk_inline_unhook(&mumu_getattr_hook); }
+ 
+ /* Why the vfs_getattr fallback is not here any more (it stood exactly where these counters now
+  * live): it was a second hook, one layer lower - it rewrote struct kstat BEFORE cp_new_stat()/
+@@ -1244,7 +1284,9 @@
+ 
+ static_assert(offsetof(struct statx, stx_dev_major) == 0x88, "statx.stx_dev_major");
+ static_assert(offsetof(struct statx, stx_dev_minor) == 0x8c, "statx.stx_dev_minor");
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+ static_assert(offsetof(struct statx, stx_mnt_id) == 0x90, "statx.stx_mnt_id");
++#endif
+ static_assert(sizeof(struct statx) == 256, "statx size");
+ static_assert(sizeof(((struct statx *)0)->stx_ino) == 8, "statx stx_ino is u64");
+ static_assert(sizeof(((struct statx *)0)->stx_size) == 8, "statx stx_size is u64");
+@@ -2098,7 +2140,8 @@
+ 		err = susfs_kstat_add_statically_abi(&info);
+ 		break;
+ 	case CMD_SUSFS_UPDATE_SUS_KSTAT:
+-		err = susfs_kstat_update(info.target_pathname, false);
++		err = susfs_kstat_update(info.target_pathname,
++			!!(info.flags & KSTAT_SPOOF_SIZE));
+ 		break;
+ 	}
+ 	mutex_unlock(&kstat_lock);
+--- a/kernel/susfs_main.c
++++ b/kernel/susfs_main.c
+@@ -244,10 +244,15 @@
+ /* Layer ids: the load order indexes susfs_layers[] through these, and susfs_load_plan[] below
+  * carries the per-layer FATAL bool passed to susfs_load_layer().  Keep the enum and the table in
+  * the same order. */
++extern int mumu_uid_filter_init(void);
++extern void mumu_uid_filter_exit(void);
++extern int mumu_overlay_init(void);
++extern void mumu_overlay_exit(void);
+ enum susfs_layer_id {
+     SUSFS_L_FP_HOOK = 0,
+     SUSFS_L_KSU_UMOUNT_GATE,
+     SUSFS_L_KSU_ALLOW_GATE,
++    SUSFS_L_UID_FILTER,
+     SUSFS_L_LSM_HOOK,
+     SUSFS_L_SUS_PATH,
+     SUSFS_L_CREATE_GATE,
+@@ -256,6 +261,7 @@
+     SUSFS_L_UNAME,
+     SUSFS_L_KSTAT,
+     SUSFS_L_SUS_MAP,
++    SUSFS_L_MUMU_OVERLAY,
+     SUSFS_L_SUS_MOUNT,
+     SUSFS_L_CMDLINE,
+     SUSFS_L_OPEN_REDIRECT,
+@@ -291,6 +297,7 @@
+      * A module that loads without it would accept rules no LSM layer can apply - the same
+      * "loaded but inert" shape fp_hook is fatal for.  ksu_lsm_hook_init() itself only
+      * reports; the refusal lives here, where a failure can fail the load. */
++    { "mumu_uid_filter", mumu_uid_filter_init, mumu_uid_filter_exit, false, SUSFS_FEAT_UID_FILTER },
+     { "lsm_hook",	layer_lsm_hook_init,		ksu_lsm_hook_exit,	false, -1 },
+     { "sus_path",	sus_path_init,			sus_path_exit,		false, SUSFS_FEAT_SUS_PATH },
+     /* After sus_path, whose rule table and per-caller gate it asks.  NOT fatal: when it
+@@ -309,6 +316,7 @@
+     { "uname",		susfs_uname_init,		susfs_uname_exit,	false, SUSFS_FEAT_SPOOF_UNAME },
+     { "kstat",		susfs_kstat_init,		susfs_kstat_exit,	false, SUSFS_FEAT_SUS_KSTAT },
+     { "sus_map",	susfs_sus_map_init,		susfs_sus_map_exit,	false, SUSFS_FEAT_SUS_MAP },
++    { "mumu_overlay", mumu_overlay_init, mumu_overlay_exit, false, SUSFS_FEAT_OVERLAY },
+     { "sus_mount",	susfs_sus_mount_init,		susfs_sus_mount_exit,	false, SUSFS_FEAT_SUS_MOUNT },
+     { "cmdline",	susfs_spoof_cmdline_init,	susfs_spoof_cmdline_exit, false, SUSFS_FEAT_SPOOF_CMDLINE },
+     { "open_redirect",	susfs_open_redirect_init,	susfs_open_redirect_exit, false, SUSFS_FEAT_OPEN_REDIRECT },
+@@ -358,6 +366,7 @@
+     { SUSFS_L_FP_HOOK, true },
+     { SUSFS_L_KSU_UMOUNT_GATE, false },
+     { SUSFS_L_KSU_ALLOW_GATE, false },
++    { SUSFS_L_UID_FILTER, true },
+     { SUSFS_L_LSM_HOOK, true },
+     { SUSFS_L_SUS_PATH, true },
+     { SUSFS_L_CREATE_GATE, false },
+@@ -366,13 +375,14 @@
+     { SUSFS_L_UNAME, false },
+     { SUSFS_L_KSTAT, false },
+     { SUSFS_L_SUS_MAP, false },
++    { SUSFS_L_MUMU_OVERLAY, true },
+     { SUSFS_L_SUS_MOUNT, false },
+     { SUSFS_L_CMDLINE, false },
+     { SUSFS_L_OPEN_REDIRECT, false },
+     { SUSFS_L_ENABLE_LOG, false },
+     { SUSFS_L_AVC_SPOOF, false },
+     { SUSFS_L_SUPERCALL, true },
+-    { SUSFS_L_HIDE_SYMS, false },
++    { SUSFS_L_HIDE_SYMS, true },
+ };
+ 
+ static int susfs_load_layer(int id, bool fatal)
+@@ -482,6 +492,8 @@
+     if (susfs_supercall_kprobe_active())
+         pr_warn("supercall delivery fell back to the kprobe path: it leaves a breakpoint on __arm64_sys_reboot, visible through /sys/kernel/debug/kprobes/list and text/instruction inspection - treat this as a side channel.\n");
+ 
++    /* MuMu 4.19 procfs lacks the newer rundown contract. */
++    __module_get(THIS_MODULE);
+     return 0;
+ }
+ 
+@@ -531,4 +543,4 @@
  #else
  MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
  #endif
 -MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.3.0-gki");
-+MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.3.0-mumu4.19");
++MODULE_DESCRIPTION("SUSFS guard LKM (susfs_guard_lkm) v2.4.0-mumu4.19");
+--- a/kernel/susfs_opath.c
++++ b/kernel/susfs_opath.c
+@@ -152,7 +152,9 @@
+ 
+ static bool opath_close_fd_resolved(void)
+ {
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    return true; /* The measured 4.19 fdtable operation below is local. */
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+ 	return opath_close_fd != NULL;
+ #else
+ 	return opath_close_fd_get_file != NULL;
+@@ -171,9 +173,25 @@
+ /* Take the fd out of the table under whichever name this kernel has.  NULL means it was not
+  * ours to take; a non-NULL file is owned by the caller, which must release it - once, or twice
+  * when opath_close_fd_extra_ref is set. */
+-static __nocfi struct file *opath_take_fd(unsigned int fd)
+-{
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
++static __nocfi struct file *opath_take_fd(unsigned int fd, struct file *expected)
++{
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    struct files_struct *files = current->files;
++    struct fdtable *fdt;
++    struct file *file = NULL;
++    spin_lock(&files->file_lock);
++    fdt = files_fdtable(files);
++    /* Only remove the file we inspected, never a descriptor reused by a sibling. */
++    if (fd < fdt->max_fds && rcu_access_pointer(fdt->fd[fd]) == expected) {
++        file = expected;
++        rcu_assign_pointer(fdt->fd[fd], NULL);
++        __clear_bit(fd, fdt->open_fds);
++        __clear_bit(fd / BITS_PER_LONG, fdt->full_fds_bits);
++        if (fd < files->next_fd) files->next_fd = fd;
++    }
++    spin_unlock(&files->file_lock);
++    return file; /* Owns the fd table's reference, not an extra get_file(). */
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+ 	if (opath_close_fd)
+ 		return opath_close_fd(fd);
+ #else
+@@ -293,7 +311,7 @@
+ 	 * this layer never inspected, while answering -ENOENT for an open that matched nothing.
+ 	 * Holding f across the take costs one reference for a few instructions and turns that race into
+ 	 * a comparison. */
+-	victim = opath_take_fd((unsigned int)ret);
++	victim = opath_take_fd((unsigned int)ret, f);
+ 	if (!victim) {
+ 		/* The number is gone: nothing was taken, so the kernel's own answer stands. */
+ 		fput(f);
+@@ -630,7 +648,10 @@
+ 	 * into it.  file_close_fd() exists only where the old name does not, so it is tried after
+ 	 * it; resolving by name - rather than assuming a version's name set - is what still covers
+ 	 * a vendor backport of either helper. */
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++    opath_close_fd_name = "mumu_fdtable_take";
++    opath_close_fd_extra_ref = false;
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+ 	opath_close_fd = (void *)find_kernel_symbol_exact("close_fd_get_file");
+ 	opath_close_fd_name = "close_fd_get_file";
+ 	if (!opath_close_fd) {
+--- a/kernel/susfs_open_redirect.c
++++ b/kernel/susfs_open_redirect.c
+@@ -141,6 +141,7 @@
+ 	 * Nothing in this entry holds a reference of any kind - no dentry, no mount, no inode - and
+ 	 * that is what keeps a rule from pinning a filesystem in place. */
+ 	struct kstatfs spoofed_kstatfs;
++	struct kstat spoofed_kstat;
+ 	int uid_scheme;
+ 	/* Set while the slot is being rewritten or has been deleted.  The reader checks this with
+ 	 * READ_ONCE and the writer clears it LAST, so false means the rest of the entry is complete. */
+@@ -623,6 +624,20 @@
+ 	 * starts at buf, so the return value has to move with it or the caller reads from the wrong offset. */
+ 	regs->regs[0] = (unsigned long)a->buf;
+ 	return 0;
++}
++
++/* The descriptor's metadata must agree with its disguised path. This runs
++ * inside vfs_getattr, before stat/fstat/statx copy anything into user memory. */
++bool mumu_open_redirect_kstat(struct inode *inode, struct kstat *stat)
++{
++    struct sus_or_entry *e;
++    bool found = false;
++    if (!inode || !READ_ONCE(nor) || !or_reverse_visible()) return false;
++    rcu_read_lock();
++    e = or_find_by_redirected_inode(inode->i_ino, inode->i_sb->s_dev, inode->i_generation);
++    if (e) { *stat = e->spoofed_kstat; found = true; }
++    rcu_read_unlock();
++    return found;
+ }
+ 
+ /* ---- reverse: vfs_statfs(path, buf) ----
+@@ -1295,6 +1310,7 @@
+ 	struct path tp, rp;
+ 	struct inode *ti, *ri;
+ 	struct kstatfs spoofed_kstatfs;
++	struct kstat spoofed_kstat;
+ 	int rc;
+ 
+ 	/* upstream susfs.c:792-796 */
+@@ -1313,7 +1329,9 @@
+ 	/* The statfs snapshot the reverse face answers from, taken here while the target's path is in
+ 	 * hand.  The path itself is dropped before this function returns; only the snapshot stays. */
+ 	memset(&spoofed_kstatfs, 0, sizeof(spoofed_kstatfs));
+-	(void)or_statfs_snapshot(&tp, &spoofed_kstatfs);
++	rc = or_statfs_snapshot(&tp, &spoofed_kstatfs);
++	if (!rc) rc = vfs_getattr(&tp, &spoofed_kstat, STATX_BASIC_STATS, AT_STATX_SYNC_AS_STAT);
++	if (rc) { path_put(&tp); return rc; }
+ 	ti = d_backing_inode(tp.dentry);
+ 	if (!ti) {
+ 		path_put(&tp);
+@@ -1428,6 +1446,7 @@
+ 	e->redirected_dev = ri->i_sb->s_dev;
+ 	e->redirected_igen = ri->i_generation;
+ 	e->spoofed_kstatfs = spoofed_kstatfs;
++	e->spoofed_kstat = spoofed_kstat;
+ 	e->uid_scheme = scheme;
+ 
+ 	WRITE_ONCE(e->dead, false);	/* fields are complete before the index publishes it */
+--- a/kernel/susfs_or_entry.c
++++ b/kernel/susfs_or_entry.c
+@@ -48,6 +48,7 @@
+ #include <linux/version.h>	/* LINUX_VERSION_CODE: fsnotify_open() moved into the open path at 6.6 */
+ #include <linux/module.h>
+ #include <linux/fs.h>
++#include <linux/fsnotify.h>
+ #include <linux/file.h>
+ #include <linux/fcntl.h>	/* AT_FDCWD, O_CLOEXEC, __O_TMPFILE */
+ #include <linux/path.h>		/* path_put() */
+@@ -119,16 +120,26 @@
+ 		lflags |= LOOKUP_FOLLOW;
+ 	if (flags & O_DIRECTORY)
+ 		lflags |= LOOKUP_DIRECTORY;
++#ifdef LOOKUP_NO_XDEV
+ 	if (resolve & SUSFS_RESOLVE_NO_XDEV)
+ 		lflags |= LOOKUP_NO_XDEV;
++#endif
++#ifdef LOOKUP_NO_MAGICLINKS
+ 	if (resolve & SUSFS_RESOLVE_NO_MAGICLINKS)
+ 		lflags |= LOOKUP_NO_MAGICLINKS;
++#endif
++#ifdef LOOKUP_NO_SYMLINKS
+ 	if (resolve & SUSFS_RESOLVE_NO_SYMLINKS)
+ 		lflags |= LOOKUP_NO_SYMLINKS;
++#endif
++#ifdef LOOKUP_BENEATH
+ 	if (resolve & SUSFS_RESOLVE_BENEATH)
+ 		lflags |= LOOKUP_BENEATH;
++#endif
++#ifdef LOOKUP_IN_ROOT
+ 	if (resolve & SUSFS_RESOLVE_IN_ROOT)
+ 		lflags |= LOOKUP_IN_ROOT;
++#endif
+ #ifdef LOOKUP_CACHED
+ 	if (resolve & SUSFS_RESOLVE_CACHED)
+ 		lflags |= LOOKUP_CACHED;
+@@ -165,8 +176,12 @@
+  * which is why this one may be NULL. */
+ static __nocfi noinline void or_fsnotify_open(struct file *file)
+ {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++	fsnotify_open(file); /* An inline helper on 4.19, absent from kallsyms. */
++#else
+ 	if (or_fsnotify_open_fn)
+ 		or_fsnotify_open_fn(file);
++#endif
+ }
+ 
+ /* Same shape for copy_struct_from_user()'s zero check: it is the helper openat2 uses to accept a
+--- a/kernel/susfs_supercall.c
++++ b/kernel/susfs_supercall.c
+@@ -103,6 +103,8 @@
+ 	{ "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n",	SUSFS_FEAT_SPOOF_CMDLINE },
+ 	{ "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n",	SUSFS_FEAT_OPEN_REDIRECT },
+ 	{ "CONFIG_KSU_SUSFS_SUS_MAP\n",		SUSFS_FEAT_SUS_MAP },
++	{ "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n", SUSFS_FEAT_UID_FILTER },
++	{ "CONFIG_KSU_SUSFS_SUS_OVERLAYFS\n", SUSFS_FEAT_OVERLAY },
+ 	/* hide_modules is not upstream's, so it is not listed here - the feature itself is unchanged. */
+ };
+ 
+@@ -155,6 +157,10 @@
+ 	void __user *arg = tw->payload;
+ 
+ 	switch (tw->cmd) {
++	case CMD_SUSFS_SET_SUS_PATH_UID_FILTER:
++	case CMD_SUSFS_SET_PRIORITY_UID_FILTER:
++		mumu_uid_filter_supercall(tw->cmd, &arg);
++		break;
+ 	case CMD_SUSFS_SHOW_VERSION:
+ 		susfs_show_version(&arg);
+ 		break;
+@@ -227,6 +233,9 @@
+ static int susfs_cmd_feature(unsigned int cmd)
+ {
+ 	switch (cmd) {
++	case CMD_SUSFS_SET_SUS_PATH_UID_FILTER:
++	case CMD_SUSFS_SET_PRIORITY_UID_FILTER:
++		return SUSFS_FEAT_UID_FILTER;
+ 	case CMD_SUSFS_ADD_SUS_PATH:
+ 	case CMD_SUSFS_ADD_SUS_PATH_LOOP:
+ 		return SUSFS_FEAT_SUS_PATH;
+--- /dev/null
++++ b/kernel/mumu_compat.h
+@@ -0,0 +1,48 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef SUSFS_MUMU_COMPAT_H
++#define SUSFS_MUMU_COMPAT_H
++#include <linux/version.h>
++#include <linux/ratelimit.h>
++#include <linux/uaccess.h>
++#include <asm/ptrace.h>
++#ifndef __nocfi
++#define __nocfi
++#endif
++#ifndef static_assert
++#define static_assert(expr, ...) _Static_assert(expr, #expr)
++#endif
++#define proc_ops file_operations
++#define proc_read read
++#define proc_write write
++#define proc_open open
++#define proc_release release
++#define proc_lseek llseek
++#define copy_from_kernel_nofault probe_kernel_read
++#define copy_to_kernel_nofault probe_kernel_write
++#define MODULE_IMPORT_NS(ns)
++#define regs_set_return_value(r, value) ((r)->regs[0] = (value))
++#define regs_get_kernel_argument(r, n) ((n) < 8 ? (r)->regs[(n)] : 0)
++#include <asm/syscall.h>
++static inline void mumu_syscall_arguments(struct task_struct *t, struct pt_regs *r, unsigned long *a)
++{ syscall_get_arguments(t, r, 0, 6, a); }
++#define syscall_get_arguments(t, r, a) mumu_syscall_arguments(t, r, a)
++#define TWA_RESUME true
++#define saved_boot_config saved_command_line
++#include <asm/tlbflush.h>
++/* 4.19 hides the equivalent helper from modules. */
++static inline void mumu_flush_kernel_pgtable(unsigned long address)
++{
++ unsigned long va = __TLBI_VADDR(address, 0);
++ __tlbi(vaae1is, va);
++ dsb(ish);
++ isb();
++}
++#define __flush_tlb_kernel_pgtable mumu_flush_kernel_pgtable
++#include <uapi/linux/btf.h>
++#define BTF_INFO_KFLAG(info) ((info) >> 31)
++#define BTF_MEMBER_BITFIELD_SIZE(val) ((val) >> 24)
++#define BTF_MEMBER_BIT_OFFSET(val) ((val) & 0xffffff)
++#define BTF_KIND_FUNC 12
++#define BTF_KIND_FUNC_PROTO 13
++struct btf_param { __u32 name_off; __u32 type; };
++#endif
+--- /dev/null
++++ b/kernel/mumu_symbols.c
+@@ -0,0 +1,78 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* MuMu's measured 4.19 exports these interfaces; no memory scan is needed. */
++#include <linux/kallsyms.h>
++#include <linux/module.h>
++#include <linux/string.h>
++#include "symbol_resolver.h"
++
++unsigned long find_kernel_symbol_exact_any(const char *name)
++{
++    return name && *name ? kallsyms_lookup_name(name) : 0;
++}
++unsigned long ksu_kallsyms_lookup_name(const char *name)
++{
++    return find_kernel_symbol_exact_any(name);
++}
++unsigned long find_kernel_symbol_exact(const char *name)
++{
++    unsigned long addr = find_kernel_symbol_exact_any(name);
++    char buf[KSYM_SYMBOL_LEN], *mod = NULL;
++    if (!addr || !kallsyms_lookup(addr, NULL, NULL, &mod, buf) || mod)
++        return 0;
++    return addr;
++}
++struct mumu_symbols { const char *name; unsigned long *out; int count, max; };
++static int mumu_collect(void *data, const char *name, struct module *mod, unsigned long addr)
++{
++    struct mumu_symbols *s = data;
++    int i;
++    if (mod || strcmp(name, s->name)) return 0;
++    for (i = 0; i < s->count; i++) if (s->out[i] == addr) return 0;
++    s->out[s->count++] = addr;
++    return s->count == s->max;
++}
++int ksu_find_symbol_all(const char *name, unsigned long *addrs, int max)
++{
++    struct mumu_symbols s = { .name = name, .out = addrs, .max = max };
++    if (!name || !*name || !addrs || max <= 0) return 0;
++    kallsyms_on_each_symbol(mumu_collect, &s);
++    return s.count;
++}
++int ksu_symbol_name_of(unsigned long addr, char *buf, char **module_out)
++{
++    char *mod = NULL;
++    if (!buf) return -EINVAL;
++    buf[0] = 0;
++    if (!addr || !kallsyms_lookup(addr, NULL, NULL, &mod, buf)) return -ENOENT;
++    if (module_out) *module_out = mod;
++    return strlen(buf);
++}
++int ksu_addr_is_named(unsigned long addr, const char *name)
++{
++    unsigned long addrs[8];
++    int i, n = ksu_find_symbol_all(name, addrs, ARRAY_SIZE(addrs));
++    for (i = 0; i < n; i++) if (addrs[i] == addr) return 1;
++    return 0;
++}
++int ksu_symbol_is_start(unsigned long addr, const char *name)
++{
++    char buf[KSYM_SYMBOL_LEN], *mod = NULL;
++    unsigned long offset = 0;
++    size_t len;
++    if (!addr || !name || !*name ||
++        !kallsyms_lookup(addr, NULL, &offset, &mod, buf) || mod || offset) return 0;
++    len = strlen(name);
++    return !strncmp(buf, name, len) &&
++        (!buf[len] || buf[len] == '.' || buf[len] == '$') &&
++        !strstr(buf + len, ".cfi_jt");
++}
++void *ksu_resolve_symbol_for_functable_hook(const char *name)
++{
++    /* MuMu is a non-CFI GCC kernel. Keep exact matches and reject module aliases. */
++    return (void *)find_kernel_symbol_exact(name);
++}
++int ksu_init_symbol_resolver(void)
++{
++    return find_kernel_symbol_exact("sys_call_table") &&
++        find_kernel_symbol_exact("security_hook_heads") ? 0 : -ENODATA;
++}
+--- /dev/null
++++ b/kernel/mumu_map_files.c
+@@ -0,0 +1,223 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* MuMu 4.19 proc map_files coverage. The iterator below is derived from
++ * Linux fs/proc/base.c at the profile's pinned Android common revision.
++ * Filter before proc_fill_cache emits anything; both passes use the same rule.
++ */
++#include <linux/module.h>
++#include <linux/fs.h>
++#include <linux/mm.h>
++#include <linux/sched/mm.h>
++#include <linux/sched/task.h>
++#include <linux/ptrace.h>
++#include <linux/flex_array.h>
++#include <linux/namei.h>
++#include "internal.h"
++#include "symbol_resolver.h"
++#include "patch_memory.h"
++
++/* Verified in MuMu Image: proc_map_files_readdir loads pid at inode - 0x48. */
++static_assert(offsetof(struct proc_inode, vfs_inode) - offsetof(struct proc_inode, pid) == 72);
++extern bool mumu_sus_map_inode_hidden(struct inode *inode);
++static const struct file_operations *mumu_ops;
++static const struct inode_operations *mumu_iops;
++static const struct dentry_operations *mumu_dops;
++static int (*original_iterate)(struct file *, struct dir_context *);
++static struct dentry *(*original_lookup)(struct inode *, struct dentry *, unsigned int);
++static int (*original_revalidate)(struct dentry *, unsigned int);
++static bool (*mumu_fill_cache)(struct file *, struct dir_context *, const char *, unsigned int,
++                              instantiate_t, struct task_struct *, const void *);
++static instantiate_t *mumu_instantiate;
++static bool iter_patched, lookup_patched, revalidate_patched;
++struct map_files_info { unsigned long start, end; fmode_t mode; };
++
++static int
++mumu_map_readdir(struct file *file, struct dir_context *ctx)
++{
++	struct vm_area_struct *vma;
++	struct task_struct *task;
++	struct mm_struct *mm;
++	unsigned long nr_files, pos, i;
++	struct flex_array *fa = NULL;
++	struct map_files_info info;
++	struct map_files_info *p;
++	int ret;
++
++	ret = -ENOENT;
++	task = get_proc_task(file_inode(file));
++	if (!task)
++		goto out;
++
++	ret = -EACCES;
++	if (!ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS))
++		goto out_put_task;
++
++	ret = 0;
++	if (!dir_emit_dots(file, ctx))
++		goto out_put_task;
++
++	mm = get_task_mm(task);
++	if (!mm)
++		goto out_put_task;
++
++	ret = down_read_killable(&mm->mmap_sem);
++	if (ret) {
++		mmput(mm);
++		goto out_put_task;
++	}
++
++	nr_files = 0;
++
++	/*
++	 * We need two passes here:
++	 *
++	 *  1) Collect vmas of mapped files with mmap_sem taken
++	 *  2) Release mmap_sem and instantiate entries
++	 *
++	 * otherwise we get lockdep complained, since filldir()
++	 * routine might require mmap_sem taken in might_fault().
++	 */
++
++	for (vma = mm->mmap, pos = 2; vma; vma = vma->vm_next) {
++		if (vma->vm_file && ++pos > ctx->pos)
++			nr_files++;
++	}
++
++	if (nr_files) {
++		fa = flex_array_alloc(sizeof(info), nr_files,
++					GFP_KERNEL);
++		if (!fa || flex_array_prealloc(fa, 0, nr_files,
++						GFP_KERNEL)) {
++			ret = -ENOMEM;
++			if (fa)
++				flex_array_free(fa);
++			up_read(&mm->mmap_sem);
++			mmput(mm);
++			goto out_put_task;
++		}
++		for (i = 0, vma = mm->mmap, pos = 2; vma;
++				vma = vma->vm_next) {
++			if (!vma->vm_file || mumu_sus_map_inode_hidden(file_inode(vma->vm_file)))
++				continue;
++			if (++pos <= ctx->pos)
++				continue;
++
++			info.start = vma->vm_start;
++			info.end = vma->vm_end;
++			info.mode = vma->vm_file->f_mode;
++			if (flex_array_put(fa, i++, &info, GFP_KERNEL))
++				BUG();
++		}
++		nr_files = i;
++	}
++	up_read(&mm->mmap_sem);
++	mmput(mm);
++
++	for (i = 0; i < nr_files; i++) {
++		char buf[4 * sizeof(long) + 2];	/* max: %lx-%lx\0 */
++		unsigned int len;
++
++		p = flex_array_get(fa, i);
++		len = snprintf(buf, sizeof(buf), "%lx-%lx", p->start, p->end);
++		if (!mumu_fill_cache(file, ctx,
++				      buf, len,
++				      mumu_instantiate,
++				      task,
++				      (void *)(unsigned long)p->mode))
++			break;
++		ctx->pos++;
++	}
++	if (fa)
++		flex_array_free(fa);
++
++out_put_task:
++	put_task_struct(task);
++out:
++	return ret;
++}
++
++
++static bool mumu_map_range_hidden(struct inode *dir, const struct qstr *name)
++{
++    char text[2 * sizeof(unsigned long) * 2 + 2], *dash;
++    unsigned long start, end;
++    struct task_struct *task;
++    struct mm_struct *mm;
++    struct vm_area_struct *vma;
++    bool hidden = false;
++    if (!dir || name->len >= sizeof(text)) return false;
++    memcpy(text, name->name, name->len); text[name->len] = 0;
++    dash = strchr(text, '-');
++    if (!dash) return false;
++    *dash++ = 0;
++    if (kstrtoul(text, 16, &start) || kstrtoul(dash, 16, &end)) return false;
++    task = get_proc_task(dir);
++    if (!task) return false;
++    mm = get_task_mm(task);
++    put_task_struct(task);
++    if (!mm) return false;
++    down_read(&mm->mmap_sem);
++    vma = find_vma(mm, start);
++    if (vma && vma->vm_start == start && vma->vm_end == end && vma->vm_file)
++        hidden = mumu_sus_map_inode_hidden(file_inode(vma->vm_file));
++    up_read(&mm->mmap_sem);
++    mmput(mm);
++    return hidden;
++}
++
++static struct dentry *mumu_map_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
++{
++    if (mumu_map_range_hidden(dir, &dentry->d_name)) return ERR_PTR(-ENOENT);
++    return original_lookup(dir, dentry, flags);
++}
++
++static int mumu_map_revalidate(struct dentry *dentry, unsigned int flags)
++{
++    if (flags & LOOKUP_RCU) return -ECHILD;
++    if (mumu_map_range_hidden(d_inode(dentry), &dentry->d_name)) return 0;
++    return original_revalidate(dentry, flags);
++}
++
++void mumu_map_files_exit(void)
++{
++    if (revalidate_patched)
++        ksu_patch_text((void *)&mumu_dops->d_revalidate, &original_revalidate,
++                       sizeof(original_revalidate), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (lookup_patched)
++        ksu_patch_text((void *)&mumu_iops->lookup, &original_lookup,
++                       sizeof(original_lookup), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (iter_patched)
++        ksu_patch_text((void *)&mumu_ops->iterate_shared, &original_iterate,
++                       sizeof(original_iterate), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    revalidate_patched = lookup_patched = iter_patched = false;
++}
++
++int mumu_map_files_init(void)
++{
++    typeof(original_iterate) iterate = mumu_map_readdir;
++    typeof(original_lookup) lookup = mumu_map_lookup;
++    typeof(original_revalidate) revalidate = mumu_map_revalidate;
++    int rc;
++    mumu_ops = (void *)find_kernel_symbol_exact("proc_map_files_operations");
++    mumu_iops = (void *)find_kernel_symbol_exact("proc_map_files_inode_operations");
++    mumu_dops = (void *)find_kernel_symbol_exact("tid_map_files_dentry_operations");
++    mumu_fill_cache = (void *)find_kernel_symbol_exact("proc_fill_cache");
++    mumu_instantiate = (void *)find_kernel_symbol_exact("proc_map_files_instantiate");
++    if (!mumu_ops || !mumu_iops || !mumu_dops || !mumu_fill_cache || !mumu_instantiate)
++        return -ENOENT;
++    original_iterate = mumu_ops->iterate_shared;
++    original_lookup = mumu_iops->lookup;
++    original_revalidate = mumu_dops->d_revalidate;
++    rc = ksu_patch_text((void *)&mumu_ops->iterate_shared, &iterate, sizeof(iterate), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (rc) return rc;
++    iter_patched = true;
++    rc = ksu_patch_text((void *)&mumu_iops->lookup, &lookup, sizeof(lookup), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (rc) goto fail;
++    lookup_patched = true;
++    rc = ksu_patch_text((void *)&mumu_dops->d_revalidate, &revalidate, sizeof(revalidate), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (rc) goto fail;
++    revalidate_patched = true;
++    return 0;
++fail:
++    mumu_map_files_exit();
++    return rc;
++}
+--- /dev/null
++++ b/kernel/mumu_overlay.c
+@@ -0,0 +1,185 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* 4.19 overlay metadata and directory views, following canonical SUS_OVERLAYFS.
++ * Apply to ordinary processes KernelSU unmounts for; root keeps the real view.
++ * Use the kernel's own lower-path and credential helpers, without private structs.
++ */
++#include <linux/module.h>
++#include <linux/fs.h>
++#include <linux/file.h>
++#include <linux/namei.h>
++#include <linux/statfs.h>
++#include <linux/mount.h>
++#include <linux/magic.h>
++#include <linux/cred.h>
++#include <linux/kprobes.h>
++#include "ksu_umount_gate.h"
++#include "symbol_resolver.h"
++#include "patch_memory.h"
++#include "susfs_kprobe.h"
++
++static bool overlay_hide = true;
++module_param(overlay_hide, bool, 0600);
++static void (*lower_path)(struct dentry *, struct path *);
++static const struct cred *(*overlay_creds)(struct super_block *);
++static int (*real_statfs)(const struct path *, struct kstatfs *);
++static int (*real_getattr)(const struct path *, struct kstat *, u32, unsigned int);
++static int (*original_statfs)(struct dentry *, struct kstatfs *);
++static int (*original_getattr)(const struct path *, struct kstat *, u32, unsigned int);
++static int (*original_iterate)(struct file *, struct dir_context *);
++static const struct super_operations *super_ops;
++static const struct file_operations *dir_ops;
++static const struct inode_operations *inode_ops[4];
++static unsigned int patched_inodes;
++static bool patched_statfs, patched_iterate, flags_armed;
++
++static bool overlay_filter(void)
++{
++    return READ_ONCE(overlay_hide) && susfs_is_current_proc_umounted_app();
++}
++
++static int mumu_overlay_statfs(struct dentry *dentry, struct kstatfs *buf)
++{
++    struct path lower = {};
++    if (overlay_filter()) lower_path(dentry->d_sb->s_root, &lower);
++    if (lower.dentry && lower.mnt) return real_statfs(&lower, buf);
++    return original_statfs(dentry, buf);
++}
++
++static int mumu_overlay_getattr(const struct path *path, struct kstat *stat,
++                                u32 request_mask, unsigned int flags)
++{
++    struct path lower = {};
++    const struct cred *saved;
++    int rc;
++    if (overlay_filter()) lower_path(path->dentry, &lower);
++    if (!lower.dentry || !lower.mnt)
++        return original_getattr(path, stat, request_mask, flags);
++    saved = overlay_creds(path->dentry->d_sb);
++    rc = real_getattr(&lower, stat, request_mask, flags);
++    if (saved) revert_creds(saved);
++    return rc;
++}
++
++static int mumu_overlay_iterate(struct file *file, struct dir_context *ctx)
++{
++    struct path lower = {};
++    const struct cred *saved;
++    struct file *real;
++    int rc;
++    if (overlay_filter()) lower_path(file->f_path.dentry, &lower);
++    if (!lower.dentry || !lower.mnt) return original_iterate(file, ctx);
++    saved = overlay_creds(file->f_path.dentry->d_sb);
++    real = dentry_open(&lower, file->f_flags | O_NOATIME, current_cred());
++    if (saved) revert_creds(saved);
++    if (IS_ERR(real)) return PTR_ERR(real);
++    real->f_pos = ctx->pos;
++    rc = iterate_dir(real, ctx);
++    fput(real);
++    return rc;
++}
++
++/* vfs_statfs assigns mount flags after ->statfs. Preserve the actual lower
++ * mount's flags as well, rather than only changing the filesystem magic. */
++static unsigned long lower_flags(struct vfsmount *mnt)
++{
++    unsigned long flags = ST_VALID, m = mnt->mnt_flags, s = mnt->mnt_sb->s_flags;
++    if ((m & MNT_READONLY) || (s & SB_RDONLY)) flags |= ST_RDONLY;
++    if (m & MNT_NOSUID) flags |= ST_NOSUID;
++    if (m & MNT_NODEV) flags |= ST_NODEV;
++    if (m & MNT_NOEXEC) flags |= ST_NOEXEC;
++    if (m & MNT_NOATIME) flags |= ST_NOATIME;
++    if (m & MNT_NODIRATIME) flags |= ST_NODIRATIME;
++    if (m & MNT_RELATIME) flags |= ST_RELATIME;
++    if (s & SB_SYNCHRONOUS) flags |= ST_SYNCHRONOUS;
++    if (s & SB_MANDLOCK) flags |= ST_MANDLOCK;
++    return flags;
++}
++struct overlay_statfs_call { struct kstatfs *buf; unsigned long flags; };
++static int overlay_flags_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
++{
++    struct overlay_statfs_call *call = (void *)ri->data;
++    const struct path *path = (void *)regs->regs[0];
++    struct path lower = {};
++    call->buf = NULL;
++    if (!overlay_filter() || !path || !path->dentry ||
++        path->dentry->d_sb->s_magic != OVERLAYFS_SUPER_MAGIC) return 1;
++    lower_path(path->dentry->d_sb->s_root, &lower);
++    if (!lower.mnt || !lower.dentry) return 1;
++    call->buf = (void *)regs->regs[1];
++    call->flags = lower_flags(lower.mnt);
++    return 0;
++}
++static int overlay_flags_return(struct kretprobe_instance *ri, struct pt_regs *regs)
++{
++    struct overlay_statfs_call *call = (void *)ri->data;
++    if (call->buf && !regs->regs[0]) call->buf->f_flags = call->flags;
++    return 0;
++}
++static struct kretprobe overlay_flags_probe = {
++    .kp.symbol_name = "vfs_statfs", .entry_handler = overlay_flags_entry,
++    .handler = overlay_flags_return, .data_size = sizeof(struct overlay_statfs_call), .maxactive = 128,
++};
++static int overlay_missed_get(char *buf, const struct kernel_param *kp)
++{
++    return scnprintf(buf, PAGE_SIZE, "%d\n", overlay_flags_probe.nmissed);
++}
++static const struct kernel_param_ops overlay_missed_ops = { .get = overlay_missed_get };
++module_param_cb(overlay_missed, &overlay_missed_ops, NULL, 0400);
++
++void mumu_overlay_exit(void)
++{
++    if (flags_armed) {
++        unregister_kretprobe(&overlay_flags_probe);
++        susfs_krp_forget_addr(&overlay_flags_probe);
++        flags_armed = false;
++    }
++    if (patched_iterate) ksu_patch_text((void *)&dir_ops->iterate, &original_iterate, sizeof(original_iterate), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (patched_statfs) ksu_patch_text((void *)&super_ops->statfs, &original_statfs, sizeof(original_statfs), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    while (patched_inodes) {
++        const struct inode_operations *ops = inode_ops[--patched_inodes];
++        ksu_patch_text((void *)&ops->getattr, &original_getattr, sizeof(original_getattr), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    }
++    patched_iterate = patched_statfs = false;
++}
++
++int mumu_overlay_init(void)
++{
++    const char *names[] = {"ovl_file_inode_operations", "ovl_dir_inode_operations", "ovl_symlink_inode_operations", "ovl_special_inode_operations"};
++    typeof(original_getattr) getattr = mumu_overlay_getattr;
++    typeof(original_statfs) statfs = mumu_overlay_statfs;
++    typeof(original_iterate) iterate = mumu_overlay_iterate;
++    int rc, i;
++    lower_path = (void *)find_kernel_symbol_exact("ovl_path_lowerdata");
++    overlay_creds = (void *)find_kernel_symbol_exact("ovl_override_creds");
++    real_statfs = (void *)find_kernel_symbol_exact("vfs_statfs");
++    real_getattr = (void *)find_kernel_symbol_exact("vfs_getattr");
++    super_ops = (void *)find_kernel_symbol_exact("ovl_super_operations");
++    dir_ops = (void *)find_kernel_symbol_exact("ovl_dir_operations");
++    if (!lower_path || !overlay_creds || !real_statfs || !real_getattr || !super_ops || !dir_ops) return -ENOENT;
++    original_getattr = (void *)find_kernel_symbol_exact("ovl_getattr");
++    if (!original_getattr) return -ENOENT;
++    for (i = 0; i < ARRAY_SIZE(names); i++) {
++        inode_ops[i] = (void *)find_kernel_symbol_exact(names[i]);
++        if (!inode_ops[i] || inode_ops[i]->getattr != original_getattr) return -EINVAL;
++    }
++    original_statfs = super_ops->statfs;
++    original_iterate = dir_ops->iterate;
++    for (i = 0; i < ARRAY_SIZE(names); i++) {
++        rc = ksu_patch_text((void *)&inode_ops[i]->getattr, &getattr, sizeof(getattr), KSU_PATCH_TEXT_FLUSH_DCACHE);
++        if (rc) goto fail;
++        patched_inodes++;
++    }
++    rc = ksu_patch_text((void *)&super_ops->statfs, &statfs, sizeof(statfs), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (rc) goto fail;
++    patched_statfs = true;
++    rc = ksu_patch_text((void *)&dir_ops->iterate, &iterate, sizeof(iterate), KSU_PATCH_TEXT_FLUSH_DCACHE);
++    if (rc) goto fail;
++    patched_iterate = true;
++    rc = register_kretprobe(&overlay_flags_probe);
++    if (rc) { susfs_krp_forget_addr(&overlay_flags_probe); goto fail; }
++    flags_armed = true;
++    return 0;
++fail:
++    mumu_overlay_exit();
++    return rc;
++}
+--- /dev/null
++++ b/kernel/mumu_uid_filter.c
+@@ -0,0 +1,253 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* SUSFS 2.4 UID-filter wire contracts, ported to MuMu's syscall-table LKM.
++ * Canonical reference: simonpunk/susfs4ksu 784ac9e6, fs/susfs.c.
++ * Configuration is private: no package names or package-list contents are logged.
++ */
++#include <linux/module.h>
++#include <linux/mm.h>
++#include <linux/fs.h>
++#include <linux/cred.h>
++#include <linux/slab.h>
++#include <linux/vmalloc.h>
++#include <linux/uaccess.h>
++#include <linux/bitmap.h>
++#include <linux/ctype.h>
++#include <linux/mutex.h>
++#include <linux/workqueue.h>
++#include <linux/resource.h>
++#include <linux/ioprio.h>
++#include <asm/unistd.h>
++#include <asm/ptrace.h>
++#include "susfs_fp_hook.h"
++
++#define UID_FIRST 10000
++#define UID_COUNT 10000
++#define UID_TEXT_SIZE 65535
++struct uid_request { char packages[UID_TEXT_SIZE]; int err; };
++static_assert(offsetof(struct uid_request, err) == 65536);
++struct uid_bitmap { struct rcu_head rcu; DECLARE_BITMAP(bits, UID_COUNT); };
++struct uid_filter {
++    char *packages;
++    const struct cred *cred;
++    struct uid_bitmap __rcu *bitmap;
++};
++static struct uid_filter filters[2]; /* path caller selection, priority target selection */
++static DEFINE_MUTEX(filter_lock);
++static bool filters_stopping;
++static struct timespec64 package_mtime;
++static loff_t package_size = -1;
++static void refresh_worker(struct work_struct *work);
++static DECLARE_DELAYED_WORK(refresh_work, refresh_worker);
++
++static bool valid_package(const char *name)
++{
++    const char *p;
++    size_t len = strlen(name);
++    if (!len || len > 255 || !strcmp(name, ".") || !strcmp(name, "..")) return false;
++    for (p = name; *p; p++) if (!isalnum(*p) && *p != '.' && *p != '_') return false;
++    return true;
++}
++
++/* The package manager's UID registry also handles apps without a data directory.
++ * The caller holds filter_lock and has temporarily borrowed the configuring root's credentials. */
++static char *read_packages(struct timespec64 *mtime, loff_t *size)
++{
++    struct file *file = filp_open("/data/system/packages.list", O_RDONLY | O_NOATIME, 0);
++    loff_t pos = 0;
++    char *buf;
++    ssize_t got;
++    if (IS_ERR(file)) return ERR_CAST(file);
++    *size = i_size_read(file_inode(file));
++    *mtime = file_inode(file)->i_mtime;
++    if (*size <= 0 || *size > 4 * 1024 * 1024) { filp_close(file, NULL); return ERR_PTR(-EFBIG); }
++    buf = vmalloc(*size + 1);
++    if (!buf) { filp_close(file, NULL); return ERR_PTR(-ENOMEM); }
++    got = kernel_read(file, buf, *size, &pos);
++    filp_close(file, NULL);
++    if (got < 0) { vfree(buf); return ERR_PTR(got); }
++    buf[got] = 0;
++    return buf;
++}
++
++static struct uid_bitmap *resolve_packages(const char *selection, const char *registry)
++{
++    struct uid_bitmap *result = kzalloc(sizeof(*result), GFP_KERNEL);
++    char *copy = kstrdup(selection, GFP_KERNEL), *next = copy, *name;
++    if (!result || !copy) { kfree(result); kfree(copy); return ERR_PTR(-ENOMEM); }
++    while ((name = strsep(&next, ","))) {
++        const char *line = registry;
++        size_t len;
++        name = strim(name);
++        if (!*name) continue;
++        if (!valid_package(name)) { kfree(copy); kfree(result); return ERR_PTR(-EINVAL); }
++        len = strlen(name);
++        while (line && *line) {
++            const char *end = strchr(line, '\n');
++            if (!strncmp(line, name, len) && (line[len] == ' ' || line[len] == '\t')) {
++                unsigned int uid;
++                if (sscanf(line + len, "%u", &uid) == 1 && uid >= UID_FIRST && uid < UID_FIRST + UID_COUNT)
++                    set_bit(uid - UID_FIRST, result->bits);
++                break;
++            }
++            line = end ? end + 1 : NULL;
++        }
++    }
++    kfree(copy);
++    return result;
++}
++
++static void publish_filter(struct uid_filter *filter, struct uid_bitmap *bitmap)
++{
++    struct uid_bitmap *old = rcu_dereference_protected(filter->bitmap, lockdep_is_held(&filter_lock));
++    rcu_assign_pointer(filter->bitmap, bitmap);
++    if (old) kfree_rcu(old, rcu);
++}
++
++bool mumu_uid_filters_active(void)
++{
++    return rcu_access_pointer(filters[0].bitmap) || rcu_access_pointer(filters[1].bitmap);
++}
++
++bool mumu_path_uid_selected(uid_t uid)
++{
++    struct uid_bitmap *bitmap;
++    bool selected;
++    if (uid >= 90000) return true;
++    rcu_read_lock();
++    bitmap = rcu_dereference(filters[0].bitmap);
++    /* Preserve the established v2.3 all-app behavior until explicitly configured. */
++    selected = !bitmap || (uid >= UID_FIRST && uid < UID_FIRST + UID_COUNT && test_bit(uid - UID_FIRST, bitmap->bits));
++    rcu_read_unlock();
++    return selected;
++}
++
++static bool priority_uid_hidden(uid_t uid)
++{
++    struct uid_bitmap *bitmap;
++    bool hidden = false;
++    uid %= 100000;
++    if (uid < UID_FIRST || uid >= UID_FIRST + UID_COUNT) return false;
++    rcu_read_lock();
++    bitmap = rcu_dereference(filters[1].bitmap);
++    if (bitmap) hidden = test_bit(uid - UID_FIRST, bitmap->bits);
++    rcu_read_unlock();
++    return hidden;
++}
++
++void mumu_uid_refresh(void)
++{
++    struct timespec64 mtime;
++    loff_t size;
++    const struct cred *saved, *cred;
++    char *registry;
++    int i;
++    if (!mumu_uid_filters_active()) return;
++    mutex_lock(&filter_lock);
++    cred = filters[0].cred ? filters[0].cred : filters[1].cred;
++    if (filters_stopping || !cred) goto out;
++    saved = override_creds(cred);
++    registry = read_packages(&mtime, &size);
++    revert_creds(saved);
++    if (IS_ERR(registry)) goto out;
++    if (size == package_size && timespec64_equal(&mtime, &package_mtime)) { vfree(registry); goto out; }
++    for (i = 0; i < ARRAY_SIZE(filters); i++) {
++        struct uid_bitmap *bitmap;
++        if (!filters[i].packages) continue;
++        bitmap = resolve_packages(filters[i].packages, registry);
++        if (IS_ERR(bitmap)) { vfree(registry); goto out; }
++        publish_filter(&filters[i], bitmap);
++    }
++    package_mtime = mtime; package_size = size;
++    vfree(registry);
++out:
++    mutex_unlock(&filter_lock);
++}
++
++static void refresh_worker(struct work_struct *work)
++{
++    mumu_uid_refresh();
++    if (!READ_ONCE(filters_stopping) && mumu_uid_filters_active()) schedule_delayed_work(&refresh_work, 5 * HZ);
++}
++
++void mumu_uid_filter_supercall(unsigned int command, void __user **arg)
++{
++    struct uid_request *request = kvzalloc(sizeof(*request), GFP_KERNEL);
++    struct uid_filter *filter = &filters[command == 0x60030];
++    struct uid_bitmap *bitmap = NULL;
++    struct timespec64 mtime;
++    loff_t size;
++    char *registry = NULL, *selection = NULL;
++    int err = -ENOMEM;
++    if (!request) goto answer;
++    if (copy_from_user(request, *arg, sizeof(*request))) { err = -EFAULT; goto answer; }
++    if (!memchr(request->packages, 0, sizeof(request->packages)) || !request->packages[0]) { err = -EINVAL; goto answer; }
++    selection = kstrdup(request->packages, GFP_KERNEL);
++    if (!selection) goto answer;
++    mutex_lock(&filter_lock);
++    if (filters_stopping) { err = -ESHUTDOWN; goto unlock; }
++    registry = read_packages(&mtime, &size);
++    if (IS_ERR(registry)) { err = PTR_ERR(registry); registry = NULL; goto unlock; }
++    bitmap = resolve_packages(selection, registry);
++    if (IS_ERR(bitmap)) { err = PTR_ERR(bitmap); goto unlock; }
++    publish_filter(filter, bitmap);
++    kfree(filter->packages); filter->packages = selection; selection = NULL;
++    if (filter->cred) put_cred(filter->cred);
++    filter->cred = get_current_cred();
++    package_size = -1; /* Refresh both selections after a registry change. */
++    schedule_delayed_work(&refresh_work, 5 * HZ);
++    err = 0;
++unlock:
++    mutex_unlock(&filter_lock);
++answer:
++    if (copy_to_user((char __user *)*arg + offsetof(struct uid_request, err), &err, sizeof(err)))
++        pr_warn_ratelimited("susfs: UID-filter error writeback failed\n");
++    vfree(registry); kfree(selection); kvfree(request);
++}
++
++static bool deny_priority(const struct pt_regs *regs, bool io)
++{
++    int which = (int)regs->regs[0], who = (int)regs->regs[1];
++    uid_t caller = current_uid().val;
++    if (caller < UID_FIRST || who <= 0 || which != (io ? IOPRIO_WHO_USER : PRIO_USER)) return false;
++    if (!io && (uid_t)who == caller) return false;
++    return priority_uid_hidden(make_kuid(current_user_ns(), who).val);
++}
++static susfs_syscall_fn_t old_getpriority, old_setpriority, old_ioprio_get, old_ioprio_set;
++#define PRIORITY_WRAP(name, io) \
++static long name##_wrap(const struct pt_regs *regs) { \
++    return deny_priority(regs, io) ? -ESRCH : old_##name(regs); \
++}
++PRIORITY_WRAP(getpriority, false)
++PRIORITY_WRAP(setpriority, false)
++PRIORITY_WRAP(ioprio_get, true)
++PRIORITY_WRAP(ioprio_set, true)
++#define PRIORITY_HOOK(fn) { .nr = __NR_##fn, .name = "mumu/" #fn, \
++    .sym = "__arm64_sys_" #fn, .wrapper = fn##_wrap, .orig_slot = &old_##fn }
++static struct susfs_fp_hook hooks[] = {
++    PRIORITY_HOOK(getpriority), PRIORITY_HOOK(setpriority), PRIORITY_HOOK(ioprio_get), PRIORITY_HOOK(ioprio_set),
++};
++void mumu_uid_filter_exit(void)
++{
++    int i;
++    WRITE_ONCE(filters_stopping, true);
++    cancel_delayed_work_sync(&refresh_work);
++    for (i = ARRAY_SIZE(hooks) - 1; i >= 0; i--) susfs_fp_remove(&hooks[i]);
++    susfs_fp_drain();
++    mutex_lock(&filter_lock);
++    for (i = 0; i < ARRAY_SIZE(filters); i++) {
++        publish_filter(&filters[i], NULL);
++        kfree(filters[i].packages); filters[i].packages = NULL;
++        if (filters[i].cred) put_cred(filters[i].cred);
++        filters[i].cred = NULL;
++    }
++    mutex_unlock(&filter_lock);
++}
++int mumu_uid_filter_init(void)
++{
++    int i, rc;
++    for (i = 0; i < ARRAY_SIZE(hooks); i++) {
++        rc = susfs_fp_install(&hooks[i]);
++        if (rc) { mumu_uid_filter_exit(); return rc; }
++    }
++    return 0;
++}

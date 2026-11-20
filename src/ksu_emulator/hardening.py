@@ -35,6 +35,10 @@ def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
     equivalent = spec.get("equivalent_policy_sha256", [])
     if not isinstance(equivalent, list) or any(not matches(HEX256, value) for value in equivalent):
         raise Error("Equivalent policy serializations require reviewed hashes")
+    compatible = spec.get("equivalent_recipes", {})
+    if not isinstance(compatible, dict) or any(
+            not matches(HEX256, old) or not matches(HEX256, new) for old, new in compatible.items()):
+        raise Error("Equivalent recipes must identify both reviewed recipe hashes")
     if not isinstance(spec.get("files"), list) or not spec["files"]:
         raise Error("Hardening file fingerprints are missing")
     seen = set()
@@ -90,7 +94,7 @@ def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
 def recipe_hash(spec: dict) -> str:
     # Repository relocation, a new core profile ID, and promotion do not alter
     # the installed policy. Hash content and guest destinations, not host paths.
-    functional = {key: value for key, value in spec.items() if key not in {"id", "base_profile", "status"}}
+    functional = {key: value for key, value in spec.items() if key not in {"id", "base_profile", "status", "equivalent_recipes"}}
     functional["policy_rules"] = sha256(repository_file(spec["policy_rules"]))
     functional["boot_files"] = {name: sha256(repository_file(path)) for name, path in spec["boot_files"].items()}
     functional["files"] = [{**item, "patch": sha256(repository_file(item["patch"]))} for item in spec["files"]]
@@ -133,7 +137,12 @@ def verify_hardening(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> di
     # legitimate user choices, and app-facing status may be sanitized.
     # Keep a cryptographic record of which reviewed policy/patch recipe is installed.
     state = json.loads(adb.su("cat /system/etc/ksu-mumu-policy/state.json"))
-    result["recipe_matches"] = state.get("recipe_sha256") == recipe_hash(spec)
+    if not isinstance(state, dict) or not matches(HEX256, state.get("recipe_sha256")):
+        raise Error("Installed policy state is missing its recipe hash")
+    current_recipe = recipe_hash(spec)
+    installed_recipe = state.get("recipe_sha256")
+    result["recipe_matches"] = (installed_recipe == current_recipe or
+                                spec.get("equivalent_recipes", {}).get(installed_recipe) == current_recipe)
     expected = {item["path"]: item["after_sha256"] for item in spec["files"]}
     expected.update({item["path"]: item["after_sha256"]
                      for item in spec.get("binary_repairs", [])})
@@ -264,7 +273,7 @@ def harden_existing(mumu: MuMu, target: int, core_bundle: Path,
             compiled = adb.bytes("su -c " + shlex.quote("cat " + stage + "/compiled-policy"))
             if not compiled:
                 raise Error("Policy compiler produced no policy")
-            if hashlib.sha256(compiled).hexdigest() != spec["compiled_policy_sha256"]:
+            if hashlib.sha256(compiled).hexdigest() not in {spec["compiled_policy_sha256"], *spec.get("equivalent_policy_sha256", [])}:
                 raise Error("Compiled policy differs from the independently inspected result")
             replacements[spec["policy_path"]] = compiled
             adb.su(f"{stage}/policy-tool --live --apply {stage}/policy.rules")

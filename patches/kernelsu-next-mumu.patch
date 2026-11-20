@@ -1,49 +1,3 @@
---- a/kernel/compat/kernel_compat.h
-+++ b/kernel/compat/kernel_compat.h
-@@ -6,6 +6,11 @@
- #include <linux/task_work.h>
- #include "ss/policydb.h"
- #include "linux/key.h"
-+
-+/* 4.19 hides this macro from modules; syscall wrappers pair it explicitly. */
-+#ifndef preempt_enable_no_resched_notrace
-+#define preempt_enable_no_resched_notrace() do { barrier(); __preempt_count_dec(); } while (0)
-+#endif
- 
- /*
-  * Adapt to Huawei HISI kernel without affecting other kernels ,
---- a/kernel/core/init.c
-+++ b/kernel/core/init.c
-@@ -51,7 +51,7 @@
- // Therefore, ksu lkm, which uses gki toolchain, requires this __stack_chk_guard,
- // while those third-party kernel can't provide.
- // Thus, we manually provide it instead of using kernel's
--#if defined(CONFIG_STACKPROTECTOR) &&                                          \
-+#if !defined(KSU_MUMU_VENDOR_GUARD) && defined(CONFIG_STACKPROTECTOR) &&         \
-     (defined(CONFIG_ARM64) && defined(MODULE) &&                               \
-      !defined(CONFIG_STACKPROTECTOR_PER_TASK))
- #include <linux/stackprotector.h>
-@@ -175,10 +175,7 @@
- 		ksu_boot_completed = true;
- 		track_throne(false);
- 
--		if (!getenforce()) {
--			pr_info("Permissive SELinux, enforcing\n");
--			setenforce(true);
--		}
-+		/* MuMu's vendor userspace boots permissive. Preserve its policy mode. */
- 
- 	} else {
- 		ksu_syscall_hook_manager_init();
-@@ -193,6 +190,8 @@
- 	}
- 
- #ifdef MODULE
-+	/* Legacy LSM hooks persist: require a reboot instead of unsafe unload. */
-+	__module_get(THIS_MODULE);
- #ifndef CONFIG_KSU_DEBUG
- 	kobject_del(&THIS_MODULE->mkobj.kobj);
- #endif
 --- a/kernel/Kbuild
 +++ b/kernel/Kbuild
 @@ -1,4 +1,5 @@
@@ -52,7 +6,7 @@
  
  kernelsu-objs += compat/kernel_compat.o
  kernelsu-objs += feature/kernel_umount.o
-@@ -172,50 +173,7 @@
+@@ -221,50 +222,7 @@
  $(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)
  endif
  
@@ -103,8 +57,8 @@
 +# Preserve the vendor kernel API; use legacy ksys_umount at runtime.
  ifneq ($(shell grep -q "atomic_t filter_count;" $(srctree)/include/linux/seccomp.h; echo $$?),0)
  $(info -- KSU_NEXT: patching struct seccomp for filter_count)
- $(shell sed -i '/int mode;/a\	atomic_t filter_count;' $(srctree)/include/linux/seccomp.h)
-@@ -301,7 +259,7 @@
+ $(shell sed -i \
+@@ -355,7 +313,7 @@
  endif
  
  ifeq ($(shell grep -q "int\s\+path_umount" $(srctree)/fs/namespace.c; echo $$?),0)
@@ -113,6 +67,152 @@
  endif
  
  # some old kernel backport this, let's check if put_seccomp_filter still exist
+--- a/kernel/compat/kernel_compat.h
++++ b/kernel/compat/kernel_compat.h
+@@ -6,6 +6,11 @@
+ #include <linux/task_work.h>
+ #include "ss/policydb.h"
+ #include "linux/key.h"
++
++/* 4.19 hides this macro from modules; syscall wrappers pair it explicitly. */
++#ifndef preempt_enable_no_resched_notrace
++#define preempt_enable_no_resched_notrace() do { barrier(); __preempt_count_dec(); } while (0)
++#endif
+ 
+ /*
+  * Adapt to Huawei HISI kernel without affecting other kernels ,
+--- a/kernel/core/init.c
++++ b/kernel/core/init.c
+@@ -52,7 +52,7 @@
+ // Therefore, ksu lkm, which uses gki toolchain, requires this __stack_chk_guard,
+ // while those third-party kernel can't provide.
+ // Thus, we manually provide it instead of using kernel's
+-#if defined(CONFIG_STACKPROTECTOR) &&                                          \
++#if !defined(KSU_MUMU_VENDOR_GUARD) && defined(CONFIG_STACKPROTECTOR) &&         \
+     (defined(CONFIG_ARM64) && defined(MODULE) &&                               \
+      !defined(CONFIG_STACKPROTECTOR_PER_TASK))
+ #include <linux/stackprotector.h>
+@@ -176,10 +176,7 @@
+ 		ksu_boot_completed = true;
+ 		track_throne(false);
+ 
+-		if (!getenforce()) {
+-			pr_info("Permissive SELinux, enforcing\n");
+-			setenforce(true);
+-		}
++		/* MuMu's vendor userspace boots permissive. Preserve its policy mode. */
+ 
+ 	} else {
+ 		ksu_syscall_hook_manager_init();
+@@ -196,6 +193,8 @@
+ 	}
+ 
+ #ifdef MODULE
++	/* Legacy LSM hooks persist: require a reboot instead of unsafe unload. */
++	__module_get(THIS_MODULE);
+ #ifndef CONFIG_KSU_DEBUG
+ 	kobject_del(&THIS_MODULE->mkobj.kobj);
+ #endif
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -78,6 +78,16 @@
+ 	return userspace_stack_buffer(ksud_path, sizeof(ksud_path));
+ }
+ 
++static long ksu_read_user_path(char *dst, const char __user *src, long count)
++{
++#ifdef KSU_SYSCALL_TABLE_HOOK
++	/* A forked shell's path page can fault. Syscall context permits sleeping. */
++	return strncpy_from_user(dst, src, count);
++#else
++	return strncpy_from_user_nofault(dst, src, count);
++#endif
++}
++
+ int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+ 		int *mode, int *__unused_flags)
+ {
+@@ -93,7 +103,7 @@
+ 
+ 	char path[sizeof(su) + 1];
+ 	memset(path, 0, sizeof(path));
+-	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
++	ksu_read_user_path(path, *filename_user, sizeof(path));
+ 
+ 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
+ 		ksu_compat_sulog('a');
+@@ -123,7 +133,7 @@
+ 
+ 	char path[sizeof(su) + 1];
+ 	memset(path, 0, sizeof(path));
+-	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
++	ksu_read_user_path(path, *filename_user, sizeof(path));
+ 
+ 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
+ 		ksu_compat_sulog('s');
+@@ -134,6 +144,23 @@
+ 	return 0;
+ }
+ 
++static bool mumu_api_child(void)
++{
++	struct task_struct *parent;
++	bool matches;
++
++	if (current_uid().val != 1000)
++		return false;
++	/* Runtime.exec can fork from a Binder thread, whose comm is not the APK
++	 * process name. The waiting parent's group leader retains that name. */
++	rcu_read_lock();
++	parent = rcu_dereference(current->real_parent);
++	matches = !strcmp(current->group_leader->comm, "pi_android.nemu") ||
++		(parent && !strcmp(parent->group_leader->comm, "pi_android.nemu"));
++	rcu_read_unlock();
++	return matches;
++}
++
+ static long ksu_handle_execve_sucompat_common(const char __user **filename_user,
+ 		const char __user *const __user *argv_user, bool execveat,
+ 		const struct pt_regs *regs)
+@@ -141,7 +168,7 @@
+ 	const char su[] = SU_PATH;
+ 	const char __user *fn;
+ 	struct ksu_sulog_pending_event *pending_sucompat = NULL;
+-	char path[sizeof(su) + 1];
++	char path[sizeof("/system/xbin/mu_bak") + 1];
+ 	long ret;
+ 	unsigned long addr;
+ 
+@@ -151,6 +178,20 @@
+ 
+ 	if (unlikely(!filename_user))
+ 		goto do_orig_execve;
++
++	/* MuMu's Java API rewrites su to its removed mu_bak provider. Redirect
++	 * only that API child's legacy helper path to the fixed-purpose client,
++	 * without granting root or altering ordinary su/stat/access behavior. */
++	if (mumu_api_child()) {
++		static const char vendor_su[] = "/system/xbin/mu_bak";
++		static const char cleanup[] = "/system/etc/ksu-emulator/mumu-disk-cleanup";
++		memset(path, 0, sizeof(path));
++		if (ksu_read_user_path(path, READ_ONCE(*filename_user), sizeof(path)) > 0 &&
++		    !memcmp(path, vendor_su, sizeof(vendor_su))) {
++			*filename_user = userspace_stack_buffer(cleanup, sizeof(cleanup));
++			goto do_orig_execve;
++		}
++	}
+ 
+ 	if (!ksu_su_compat_enabled)
+ 		goto do_orig_execve;
+@@ -162,7 +203,7 @@
+ 	fn = (const char __user *)addr;
+ 	memset(path, 0, sizeof(path));
+ 
+-	ret = strncpy_from_user_nofault(path, fn, sizeof(path));
++	ret = ksu_read_user_path(path, fn, sizeof(path));
+ 	if (ret < 0 && preempt_count()) {
+ 		preempt_enable_no_resched_notrace();
+ 		ret = strncpy_from_user(path, fn, sizeof(path));
 --- a/kernel/hook/lsm_hooks.c
 +++ b/kernel/hook/lsm_hooks.c
 @@ -144,7 +144,14 @@
@@ -131,61 +231,6 @@
  	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), &ksu_lsmid);
  #elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
  	security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), "ksu");
---- a/kernel/feature/sucompat.c
-+++ b/kernel/feature/sucompat.c
-@@ -90,6 +90,16 @@
- 	return userspace_stack_buffer(ksud_path, sizeof(ksud_path));
- }
- 
-+static long ksu_read_user_path(char *dst, const char __user *src, long count)
-+{
-+#ifdef KSU_SYSCALL_TABLE_HOOK
-+	/* A forked shell's path page can fault. Syscall context permits sleeping. */
-+	return strncpy_from_user(dst, src, count);
-+#else
-+	return strncpy_from_user_nofault(dst, src, count);
-+#endif
-+}
-+
- int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
- 		int *mode, int *__unused_flags)
- {
-@@ -105,7 +115,7 @@
- 
- 	char path[sizeof(su) + 1];
- 	memset(path, 0, sizeof(path));
--	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
-+	ksu_read_user_path(path, *filename_user, sizeof(path));
- 
- 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
- 		ksu_compat_sulog('a');
-@@ -135,7 +145,7 @@
- 
- 	char path[sizeof(su) + 1];
- 	memset(path, 0, sizeof(path));
--	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
-+	ksu_read_user_path(path, *filename_user, sizeof(path));
- 
- 	if (unlikely(!memcmp(path, su, sizeof(su)))) {
- 		ksu_compat_sulog('s');
-@@ -171,14 +181,14 @@
- 	if (!ksu_is_allow_uid_for_current(current_uid().val))
- 		goto do_orig_execve;
- 
--	if (get_user(fn_addr, filename_user))
--		goto do_orig_execve;
-+	/* filename_user points into kernel pt_regs, not into userspace. */
-+	fn_addr = READ_ONCE(*filename_user);
- 
- 	addr = untagged_addr((unsigned long)fn_addr);
- 	fn = (const char __user *)addr;
- 	memset(path, 0, sizeof(path));
- 
--	ret = strncpy_from_user_nofault(path, fn, sizeof(path));
-+	ret = ksu_read_user_path(path, fn, sizeof(path));
- 	if (ret < 0 && preempt_count()) {
- 		preempt_enable_no_resched_notrace();
- 		ret = strncpy_from_user(path, fn, sizeof(path));
 --- a/kernel/hook/syscall_table_hook.c
 +++ b/kernel/hook/syscall_table_hook.c
 @@ -31,6 +31,9 @@
@@ -242,3 +287,16 @@
  #ifdef __NR_execve
  		{ __NR_execve, ksu_sth_execve },
  #endif
+--- a/uapi/supercall.h
++++ b/uapi/supercall.h
+@@ -11,7 +11,9 @@
+ // 4: add KSU_GET_INFO_FLAG_BUNDLED
+ // 5: add EVENT_SERVICES with a start/skip result
+ // 6: add KSU_IOCTL_LOOKUP_SYMBOLS and KSU_GET_INFO_FLAG_PREINIT; modules.rc and preinit may live under /metadata/vold/ksu
+-#define KERNEL_SU_UAPI_VERSION 6
++/* MuMu uses the signed v3.4.2 userspace (UAPI 5). The optional preinit
++ * runner is not built; retain its boot-stage contract for this LKM. */
++#define KERNEL_SU_UAPI_VERSION 5
+ 
+ /* Magic numbers for reboot hook to install fd */
+ #define KSU_INSTALL_MAGIC1 0xDEADBEEF

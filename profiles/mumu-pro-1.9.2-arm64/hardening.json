@@ -322,12 +322,12 @@
   "policy_rules": "profiles/mumu-pro-1.9.2-arm64/hardening/policy.rules",
   "policy_tool": {
     "apk": {
-      "url": "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk",
-      "sha256": "f511bd33d3242911d05b0939f910a3133ef2ba0e0ff1e098128f9f3cd0c16610"
+      "url": "https://github.com/topjohnwu/Magisk/releases/download/v31.1/Magisk-v31.1.apk",
+      "sha256": "89cefac0a318afa39fb3880c45c87b036c05bc1ebf02a7a715b7f8d7c26ac6e7"
     },
     "member": "lib/arm64-v8a/libmagiskpolicy.so",
-    "sha256": "e1c4a2677b78c7fc79771b804bcd97ccb6d960bcad5d539b56e783d8c59cc0f5",
-    "source_commit": "2c6adbc69ba0e5dce09cd13c6d9aca5de30efe76"
+    "sha256": "83725b7c452c1d441acd851daaf1dffd15ef06d7b8dabac8a1215801d2b40796",
+    "source_commit": "0972f67d97f9b6302b67c5171283330c74114b4a"
   },
   "offline_label_trees": [
     "/etc/mumu-configs/java_patch",
@@ -355,7 +355,7 @@
     "/system/bin/input": "u:object_r:shell_exec:s0",
     "/system/bin/cmd": "u:object_r:shell_exec:s0"
   },
-  "compiled_policy_sha256": "e9a67efa6b65d3aa41b5d6be58e5977f647979cb04f8345cf7b75bfc8bdbd8fe",
+  "compiled_policy_sha256": "38d0b169e953950b1b92daeb197c0f8c281ed8ed3e972aae3a25faa549fed0ca",
   "required_services": [
     "zygote",
     "surfaceflinger",
@@ -377,8 +377,12 @@
     "vendor.sensors-hal-2-1-multihal"
   ],
   "equivalent_policy_sha256": [
+    "e9a67efa6b65d3aa41b5d6be58e5977f647979cb04f8345cf7b75bfc8bdbd8fe",
     "e514eb790c01eb8993b28c3d2894fda3649e4df6d28a7aa04c7ee80e50d519ff"
   ],
+  "equivalent_recipes": {
+    "72fe0cff84b36491a3c8b6be009c777ede55527eb2a498c89b280d9989bd838c": "0e4075b79772ebf111d733e83f6a5bbad71f32192ebfb304e509517e9fbdff98"
+  },
   "binary_repairs": [
     {
       "path": "/system/bin/nemu_sys_opt",

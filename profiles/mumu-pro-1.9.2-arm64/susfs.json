@@ -4,19 +4,30 @@
   "base_profile": "mumu-pro-1.9.2-arm64",
   "status": "verified",
   "module_id": "mumu_susfs",
-  "module_version": "1.0.1",
-  "module_version_code": 10001,
-  "susfs_version": "v2.3.0",
-  "source_commit": "0b197bfd3d3402ee108e19c66ed3293d9d14481a",
+  "module_version": "1.2.3",
+  "module_version_code": 10203,
+  "susfs_version": "v2.4.0",
+  "source_commit": "761b93083afd846858257221453bf306465042a3",
   "source": {
-    "url": "https://codeload.github.com/inforcqb/susfs4ksu-lkm/tar.gz/0b197bfd3d3402ee108e19c66ed3293d9d14481a",
-    "sha256": "9b76bd417d6ed3827613a90574854ea564de5913ab3d8e8453c42e65f907bad8"
+    "url": "https://codeload.github.com/inforcqb/susfs4ksu-for-lkm/tar.gz/761b93083afd846858257221453bf306465042a3",
+    "sha256": "c96e0407a3b91d2e74c031d96ffbd3f23e75c8df50f5c7d5075bb2fe2ae4fe98"
   },
   "patches": [
     "patches/susfs-lkm-mumu.patch"
   ],
   "normalize_line_endings": [
-    "kernel/sus_path.c"
+    "kernel/sus_path.c",
+    "kernel/susfs_create_vfs.c"
   ],
-  "kernel_symbols": "profiles/mumu-pro-1.9.2-arm64/kernel-symbols.txt"
+  "kernel_symbols": "profiles/mumu-pro-1.9.2-arm64/kernel-symbols.txt",
+  "repository": "inforcqb/susfs4ksu-for-lkm",
+  "source_ref": "main",
+  "userspace_source_commit": "14b577368caf43c84577918f5d8ba6cae56c8d63",
+  "userspace_source": {
+    "url": "https://codeload.github.com/sidex15/susfs4ksu-binaries/tar.gz/14b577368caf43c84577918f5d8ba6cae56c8d63",
+    "sha256": "6cf2747da49efca2160f7876e9169fbf50231c3edfbedb52e184e25309b63d54"
+  },
+  "userspace_sha256": "d587ea8f6669800f99c412ebded1f6a4308fb3708d3963de96169017b394502e",
+  "canonical_port_commit": "784ac9e6fd49bb02499b5b60c57ccc9d0c680204",
+  "canonical_port_branch": "gki-android12-5.10"
 }

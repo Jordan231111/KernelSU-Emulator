@@ -9,12 +9,11 @@ from .build import build
 from .bundle import validate_bundle
 from .common import PROFILE_ID, ROOT, Error
 from .elf import module_info
-from .install import install, verify
+from .install import install, upgrade, verify
 from .mumu import DEFAULT_APP, Adb, MuMu
 from .probe import probe
 from .common import load_profile
-from .maintenance import (capture, compare_capture, create_candidate, patch_preflight,
-                          read_capture, register_lab)
+from .maintenance import capture, compare_capture, create_candidate, patch_preflight, read_capture
 from .profiles import list_profiles
 from .upstream import prepare_framework, updates
 from .susfs import build_susfs, validate_susfs, install_susfs, verify_susfs
@@ -82,7 +81,11 @@ def main(argv: list[str] | None = None) -> int:
     deployment = commands.add_parser("install", help="Install into one selected instance, in place")
     deployment.add_argument("--instance", type=int, required=True)
     deployment.add_argument("--bundle", type=Path, default=ROOT / "out" / PROFILE_ID)
-    deployment.add_argument("--experimental", action="store_true", help="Permit candidate bundles in registered test instances")
+    deployment.add_argument("--experimental", action="store_true", help="Test a candidate bundle on the selected instance")
+    update = commands.add_parser("upgrade", help="Upgrade a compatible installed core in place and cold-boot")
+    update.add_argument("--instance", type=int, required=True)
+    update.add_argument("--bundle", type=Path, required=True)
+    update.add_argument("--experimental", action="store_true")
     existing = commands.add_parser("harden-existing", help="Apply verified SELinux hardening to the selected instance")
     existing.add_argument("--instance", type=int, required=True)
     existing.add_argument("--bundle", type=Path, required=True)
@@ -142,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                     "vmName": args.name, "vmCpuCount": 4, "vmMemoryOfMB": 4096,
                     "vmRootEnable": False,
                 }))
-                result = register_lab(mumu, mumu.info(result["index"]))
+                result = mumu.info(result["index"])
             elif args.command == "start":
                 result = {"instance": args.instance, "serial": mumu.start(args.instance).serial}
             elif args.command == "stop":
@@ -154,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
                 result = probe(mumu.connect(args.instance), root=args.root)
             elif args.command == "install":
                 result = install(mumu, args.instance, args.bundle, experimental=args.experimental)
+            elif args.command == "upgrade":
+                result = upgrade(mumu, args.instance, args.bundle, experimental=args.experimental)
             elif args.command == "install-susfs":
                 result = install_susfs(mumu, args.instance, args.bundle, args.experimental)
             elif args.command == "verify-susfs":

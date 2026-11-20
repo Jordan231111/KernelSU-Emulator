@@ -31,7 +31,7 @@ def main():
         patches.append((settings["module_patches"], Path("/build/kernelsu")))
     for selected, directory in patches:
         for patch in selected:
-            run(["patch", "--batch", "--fuzz=0", "-p1", "--input", Path("/src") / patch], cwd=directory)
+            run(["patch", "--batch", "--forward", "--fuzz=0", "-p1", "--input", Path("/src") / patch], cwd=directory)
     run(["scripts/config", "--set-str", "LOCALVERSION", settings["local_version"], "--disable", "LOCALVERSION_AUTO"])
     base = ["make", "ARCH=" + settings["arch"], "CROSS_COMPILE=" + settings["cross_compile"], "HOSTCC=gcc-9"]
     run(base + ["CC=aarch64-linux-gnu-gcc-9", "olddefconfig", "modules_prepare", "-j4"])
@@ -53,6 +53,11 @@ def main():
     run(["aarch64-linux-gnu-strip", "--strip-debug", "/out/kernelsu.ko"])
     run(["aarch64-linux-gnu-gcc-9", "-static", "-O2", "-Wall", "-Wextra", "-Werror",
          "/src/native/ksu_probe.c", "-o", "/out/ksu-probe"])
+    run(["aarch64-linux-gnu-gcc-9", "-static", "-O2", "-Wall", "-Wextra", "-Werror",
+         "/src/native/mumu_disk_cleanup.c", "-o", "/out/mumu-disk-cleanupd"])
+    run(["clang", "--target=aarch64-linux-gnu", "-O2", "-Wall", "-Wextra", "-Werror",
+         "-nostdlib", "-static-pie", "-ffreestanding", "-fno-stack-protector", "-fuse-ld=lld", "-Wl,-e,_start",
+         "/src/native/mumu_cleanup_client.c", "-o", "/out/mumu-disk-cleanup"])
     print("Module and verification probe built successfully.", flush=True)
 
 

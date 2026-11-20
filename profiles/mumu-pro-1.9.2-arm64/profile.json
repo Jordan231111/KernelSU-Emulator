@@ -13,7 +13,7 @@
   "ksu_tag": "v3.4.2",
   "ksu_package": "com.rifsxd.ksunext",
   "kernel_source_commit": "f931d3c324845b1be4337d27b565351fb581f206",
-  "ksu_source_commit": "c81cdf51c3bb606836c6fc9a7cc858053eb0bc62",
+  "ksu_source_commit": "e5f5ec998de88b9fc43c62cff8f7ae12d3f4800a",
   "userspace_source_commit": "4c706b5938665866ebe16944a481a7b91e3396af",
   "sources": {
     "kernel": {
@@ -21,8 +21,8 @@
       "sha256": "2f3ef34a8dc5192dbc3c3e62080245967e3e5a958206e417592375122b0f95ef"
     },
     "kernelsu": {
-      "url": "https://codeload.github.com/KernelSU-Next/KernelSU-Next/tar.gz/c81cdf51c3bb606836c6fc9a7cc858053eb0bc62",
-      "sha256": "5db5086d11a17fac7524f7272418555a44160e73db2e1bf96990d1549cb4691c"
+      "url": "https://codeload.github.com/KernelSU-Next/KernelSU-Next/tar.gz/e5f5ec998de88b9fc43c62cff8f7ae12d3f4800a",
+      "sha256": "7eca77d2aaffc81d477bce84fcee412cd86e18146d8d8fb9b5998447f9675084"
     },
     "userspace": {
       "url": "https://codeload.github.com/KernelSU-Next/KernelSU-Next/tar.gz/4c706b5938665866ebe16944a481a7b91e3396af",
@@ -33,5 +33,24 @@
       "sha256": "774a5511f7034a4930e881114e202319cbdc34c5aaaa5c7c6b6d2902364e4c58"
     }
   },
-  "ksud_sha256": "7794fb0546955e10b3b61a2771b325d52e47ac1d4702970c9a46e3b1667db042"
+  "ksud_sha256": "7794fb0546955e10b3b61a2771b325d52e47ac1d4702970c9a46e3b1667db042",
+  "build": {
+    "arch": "arm64",
+    "cross_compile": "aarch64-linux-gnu-",
+    "local_version": "-android-arm64-gedae1315d023",
+    "kernel_config": "profiles/mumu-pro-1.9.2-arm64/kernel.config",
+    "kernel_patches": [
+      "patches/mumu-task-layout.patch"
+    ],
+    "module_patches": [
+      "patches/kernelsu-next-mumu.patch"
+    ],
+    "module_directory": "kernel",
+    "config": {
+      "CONFIG_KSU": "m",
+      "CONFIG_KSU_DEBUG": "n",
+      "CONFIG_KSU_SYSCALL_TABLE_HOOK": "y"
+    },
+    "uapi_version": 5
+  }
 }

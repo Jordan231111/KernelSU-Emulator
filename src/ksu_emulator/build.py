@@ -21,10 +21,11 @@ def download(source: dict, cache: Path) -> Path:
         return dest
     if not source["url"].startswith("https://"):
         raise Error("Downloads require HTTPS")
-    temp = dest.with_suffix(".part")
+    request = urllib.request.Request(source["url"], headers={"User-Agent": "KernelSU-Emulator/0.1"})
+    fd, name = tempfile.mkstemp(prefix=dest.name + ".", suffix=".part", dir=cache)
+    temp = Path(name)
     try:
-        request = urllib.request.Request(source["url"], headers={"User-Agent": "KernelSU-Emulator/0.1"})
-        with urllib.request.urlopen(request, timeout=120) as response, temp.open("wb") as output:
+        with os.fdopen(fd, "wb") as output, urllib.request.urlopen(request, timeout=120) as response:
             shutil.copyfileobj(response, output)
         if sha256(temp) != source["sha256"]:
             raise Error(f"Checksum mismatch for {source['url']}")

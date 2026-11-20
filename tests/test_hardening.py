@@ -29,6 +29,13 @@ class HardeningContractTests(unittest.TestCase):
         verified["compiled_policy_sha256"] = "0" * 64
         self.assertNotEqual(recipe_hash(candidate), recipe_hash(verified))
 
+    def test_legacy_compiler_receipt_is_scoped_to_the_reviewed_recipe(self):
+        _, spec = specification()
+        old = "72fe0cff84b36491a3c8b6be009c777ede55527eb2a498c89b280d9989bd838c"
+        self.assertEqual(spec["equivalent_recipes"][old], recipe_hash(spec))
+        changed = {**spec, "compiled_policy_sha256": "0" * 64}
+        self.assertNotEqual(changed["equivalent_recipes"][old], recipe_hash(changed))
+
     def test_optional_recipes_are_copied_as_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

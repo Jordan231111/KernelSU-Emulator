@@ -4,9 +4,8 @@ set -eu
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 root="$repo/out/guest-tests/android"
 source_dir="$repo/tests/guest/android"
-sdk="${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}"
-bt="$sdk/build-tools/${ANDROID_BUILD_TOOLS:-35.0.0}"
-api="$sdk/platforms/${ANDROID_PLATFORM:-android-35}/android.jar"
+bt=$(python3 "$repo/tests/guest/android_sdk.py" build-tools)
+api="$(python3 "$repo/tests/guest/android_sdk.py" platform)/android.jar"
 mkdir -p "$root/classes" "$root/dex"
 javac -source 8 -target 8 -bootclasspath "$api" -d "$root/classes" "$source_dir/src/io/github/kernelsuemulator/probe/ProbeActivity.java"
 "$bt/d8" --lib "$api" --min-api 26 --output "$root/dex" "$root"/classes/io/github/kernelsuemulator/probe/*.class

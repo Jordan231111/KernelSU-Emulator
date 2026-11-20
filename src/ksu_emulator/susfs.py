@@ -14,13 +14,14 @@ import zipfile
 from pathlib import Path
 
 from .build import download, extract_source
+from .bundle import verify_recipe
 from .common import PROFILE_ID, ROOT, Error, load_profile, run, save_json, sha256
-from .elf import module_info
+from .elf import module_info, verify_imports
 from .profiles import HEX256, ID_PATTERN, build_settings, expected_vermagic, matches, repository_file
 from .mumu import MuMu
 
 MODULE_FILES = {"module.prop", "customize.sh", "post-fs-data.sh", "boot-completed.sh", "skip_mount",
-                "susfs_guard_lkm.ko", "susfs-sc", "payload.sha256"}
+                "susfs_guard_lkm.ko", "susfs-sc", "ksu_susfs", "payload.sha256"}
 RUNTIME_FILES = MODULE_FILES - {"customize.sh", "payload.sha256"}
 RECIPE = ("scripts/Dockerfile", "scripts/build_module.py", "scripts/build-in-container.sh",
           "scripts/susfs-post-fs-data.sh.in", "scripts/susfs-customize.sh.in", "scripts/susfs-boot-completed.sh")
@@ -38,9 +39,12 @@ def specification(profile_id: str = PROFILE_ID) -> tuple[dict, dict]:
         raise Error("Invalid SUSFS identifier")
     if not isinstance(spec.get("module_version_code"), int) or isinstance(spec["module_version_code"], bool) or spec["module_version_code"] <= 0:
         raise Error("Invalid SUSFS module version code")
-    source = spec.get("source", {})
-    if not isinstance(source, dict) or not isinstance(source.get("url"), str) or not source["url"].startswith("https://") or not matches(HEX256, source.get("sha256")):
-        raise Error("SUSFS source must be checksum pinned")
+    for key in ("source", "userspace_source"):
+        source = spec.get(key, {})
+        if not isinstance(source, dict) or not isinstance(source.get("url"), str) or not source["url"].startswith("https://") or not matches(HEX256, source.get("sha256")):
+            raise Error(f"SUSFS {key} must be checksum pinned")
+    if not matches(HEX256, spec.get("userspace_sha256")):
+        raise Error("The canonical SUSFS userspace binary must be checksum pinned")
     for patch in spec.get("patches", []):
         repository_file(patch)
     if not spec.get("patches") or not isinstance(spec.get("normalize_line_endings"), list):
@@ -63,7 +67,7 @@ def template(name: str, profile: dict, spec: dict) -> str:
     content = repository_file(name).read_text()
     for key, value in {"KERNEL_RELEASE": profile["kernel_release"], "KERNEL_VERSION": profile["kernel_version"],
                        "CONFIG_SHA256": profile["config_gz_sha256"], "VENDOR_SHA256": profile["vendor_module_sha256"],
-                       "SUSFS_VERSION": spec["susfs_version"]}.items():
+                       "SUSFS_VERSION": spec["susfs_version"], "KSU_PACKAGE": profile["ksu_package"]}.items():
         content = content.replace("@" + key + "@", value)
     return content
 
@@ -77,6 +81,14 @@ def build_susfs(output: Path | None = None, profile_id: str = PROFILE_ID) -> dic
     print(f"Building {spec['id']} ({spec['status']})", flush=True)
     kernel = download(profile["sources"]["kernel"], ROOT / ".work/cache")
     source = download(spec["source"], ROOT / ".work/cache")
+    userspace = download(spec["userspace_source"], ROOT / ".work/cache")
+    with tarfile.open(userspace, "r:gz") as tar:
+        binaries = [entry for entry in tar if entry.isfile() and entry.name.endswith("/ksu_susfs_arm64")]
+        if len(binaries) != 1:
+            raise Error("Expected one canonical ARM64 SUSFS client in its source archive")
+        (output / "ksu_susfs").write_bytes(tar.extractfile(binaries[0]).read())
+    if sha256(output / "ksu_susfs") != spec["userspace_sha256"]:
+        raise Error("The canonical SUSFS client does not match its pin")
     parent = ROOT / ".work/builds"
     parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="susfs-", dir=parent) as tmp:
@@ -97,7 +109,7 @@ def build_susfs(output: Path | None = None, profile_id: str = PROFILE_ID) -> dic
         raise Error("SUSFS build recipe changed during compilation")
     module = output / "module"
     module.mkdir(exist_ok=True)
-    for name in ("susfs_guard_lkm.ko", "susfs-sc"):
+    for name in ("susfs_guard_lkm.ko", "susfs-sc", "ksu_susfs"):
         shutil.copyfile(output / name, module / name)
     (module / "module.prop").write_text(
         f"id={spec['module_id']}\nname=MuMu SUSFS\nversion={spec['module_version']} ({spec['susfs_version']})\n"
@@ -107,7 +119,7 @@ def build_susfs(output: Path | None = None, profile_id: str = PROFILE_ID) -> dic
     (module / "customize.sh").write_text(template("scripts/susfs-customize.sh.in", profile, spec), newline="\n")
     (module / "post-fs-data.sh").write_text(template("scripts/susfs-post-fs-data.sh.in", profile, spec), newline="\n")
     (module / "boot-completed.sh").write_bytes(repository_file("scripts/susfs-boot-completed.sh").read_bytes())
-    for name in ("post-fs-data.sh", "boot-completed.sh", "susfs-sc"):
+    for name in ("post-fs-data.sh", "boot-completed.sh", "susfs-sc", "ksu_susfs"):
         (module / name).chmod(0o755)
     # KernelSU deliberately removes customize.sh after installation.
     (module / "payload.sha256").write_text("".join(f"{sha256(module / name)}  {name}\n" for name in sorted(RUNTIME_FILES)), newline="\n")
@@ -119,6 +131,7 @@ def build_susfs(output: Path | None = None, profile_id: str = PROFILE_ID) -> dic
     sources.mkdir(exist_ok=True)
     shutil.copyfile(kernel, sources / "kernel.tar.gz")
     shutil.copyfile(source, sources / "susfs.tar.gz")
+    shutil.copyfile(userspace, sources / "userspace.tar.gz")
     with tarfile.open(sources / "recipe.tar.gz", "w:gz") as tar:
         for name in (*recipe_files(profile, spec), "LICENSE", "NOTICE.md", "patches/LICENSE-GPL-2.0", "ksu.py"):
             tar.add(ROOT / name, arcname=name)
@@ -127,9 +140,13 @@ def build_susfs(output: Path | None = None, profile_id: str = PROFILE_ID) -> dic
     manifest = {"schema": 1, "kind": "mumu-susfs", "profile": profile, "specification": spec,
                 "archive": archive.name, "archive_sha256": sha256(archive), "recipe": inputs,
                 "files": {name: sha256(module / name) for name in sorted(MODULE_FILES)},
-                "sources": {name: sha256(sources / name) for name in ("kernel.tar.gz", "susfs.tar.gz", "recipe.tar.gz")}}
+                "sources": {name: sha256(sources / name) for name in ("kernel.tar.gz", "susfs.tar.gz", "userspace.tar.gz", "recipe.tar.gz")}}
     save_json(output / "manifest.json", manifest)
-    validate_susfs(output)
+    try:
+        validate_susfs(output)
+    except Exception:
+        (output / "manifest.json").unlink(missing_ok=True)
+        raise
     print(f"Verified bundle: {output}", flush=True)
     return {"bundle": str(output), "module_zip": str(archive), "status": spec["status"]}
 
@@ -152,23 +169,34 @@ def validate_susfs(directory: Path) -> dict:
             for name in MODULE_FILES:
                 if hashlib.sha256(zipped.read(name)).hexdigest() != value["files"][name]:
                     raise Error(f"SUSFS payload changed: {name}")
+            if value["files"]["ksu_susfs"] != spec["userspace_sha256"]:
+                raise Error("The SUSFS client differs from its canonical pin")
+            for name in ("customize.sh", "post-fs-data.sh"):
+                expected = template("scripts/susfs-" + name + ".in", profile, spec)
+                if zipped.read(name) != expected.encode():
+                    raise Error(f"SUSFS script differs from the selected install recipe: {name}")
+            if zipped.read("boot-completed.sh") != repository_file("scripts/susfs-boot-completed.sh").read_bytes():
+                raise Error("SUSFS boot completion script differs from the selected install recipe")
+            payload = "".join(f"{value['files'][name]}  {name}\n" for name in sorted(RUNTIME_FILES))
+            if zipped.read("payload.sha256") != payload.encode():
+                raise Error("SUSFS boot checksums do not cover the runtime payload")
             info = module_info(zipped.read("susfs_guard_lkm.ko"), expected_name="susfs_guard_lkm")
         if info["absolute_symbols"] or info["vermagic"].strip() != expected_vermagic(profile):
             raise Error("SUSFS module is bound to runtime addresses or has the wrong kernel ABI")
-        symbols = set(repository_file(spec["kernel_symbols"]).read_text().splitlines())
-        missing = sorted(set(info["undefined_symbols"]) - symbols)
-        if missing:
-            raise Error("SUSFS imports symbols absent from the measured kernel: " + ", ".join(missing))
-        if set(value["sources"]) != {"kernel.tar.gz", "susfs.tar.gz", "recipe.tar.gz"}:
+        verify_imports(info, repository_file(spec["kernel_symbols"]))
+        if set(value["sources"]) != {"kernel.tar.gz", "susfs.tar.gz", "userspace.tar.gz", "recipe.tar.gz"}:
             raise Error("SUSFS corresponding source archives are incomplete")
         for name, digest in value["sources"].items():
             source = directory / "sources" / name
             if source.is_symlink() or sha256(source) != digest:
                 raise Error(f"SUSFS source archive changed: {name}")
-        if value["sources"]["kernel.tar.gz"] != profile["sources"]["kernel"]["sha256"] or value["sources"]["susfs.tar.gz"] != spec["source"]["sha256"]:
+        if (value["sources"]["kernel.tar.gz"] != profile["sources"]["kernel"]["sha256"] or
+                value["sources"]["susfs.tar.gz"] != spec["source"]["sha256"] or
+                value["sources"]["userspace.tar.gz"] != spec["userspace_source"]["sha256"]):
             raise Error("SUSFS source archives are not the pinned upstream inputs")
+        verify_recipe(directory / "sources/recipe.tar.gz", value["recipe"], recipe_files(profile, spec))
         return value
-    except (KeyError, OSError, ValueError, zipfile.BadZipFile) as exc:
+    except (KeyError, TypeError, OSError, ValueError, EOFError, tarfile.TarError, zipfile.BadZipFile) as exc:
         raise Error(f"Invalid SUSFS bundle: {exc}") from exc
 
 
@@ -176,15 +204,25 @@ def verify_susfs(mumu: MuMu, index: int, profile_id: str = PROFILE_ID) -> dict:
     profile, spec = specification(profile_id)
     mumu.validate_app(profile)
     adb = mumu.connect(index)
-    version = adb.su("/data/adb/ksud susfs version")
-    variant = adb.su("/data/adb/ksud susfs variant")
-    features = adb.su("/data/adb/ksud susfs features").splitlines()
-    counters = adb.su("cat /sys/module/susfs_guard_lkm/parameters/legacy_path_stats")
     ready = adb.shell("getprop sys.ksu_mumu.susfs_ready") == "1"
-    return {"instance": index, "version": version, "variant": variant, "declared_features": features,
-            "boot_configuration_ready": ready, "path_counters": counters,
-            "verified": ready and version == spec["susfs_version"] and variant == "NON-GKI",
-            "note": "Engine/API/startup verification; behavioral checks are described in tests/guest/README.md"}
+    fallback = adb.shell("getprop sys.ksu_mumu.susfs_fallback")
+    result = {"instance": index, "version": None, "variant": None, "declared_features": [],
+              "boot_configuration_ready": ready, "fallback": fallback or None, "path_counters": None,
+              "verified": False, "behavior_tested": False,
+              "note": "Checks startup and protocol identity. Counters are cumulative for this boot. "
+                      "Feature declarations are reported by the engine."}
+    if fallback:
+        return result
+    try:
+        result["version"] = adb.su("/data/adb/ksud susfs version")
+        result["variant"] = adb.su("/data/adb/ksud susfs variant")
+        result["declared_features"] = adb.su("/data/adb/ksud susfs features").splitlines()
+        result["path_counters"] = adb.su("cat /sys/module/susfs_guard_lkm/parameters/legacy_path_stats")
+    except Error as exc:
+        result["query_error"] = str(exc)
+        return result
+    result["verified"] = ready and result["version"] == spec["susfs_version"] and result["variant"] == "NON-GKI"
+    return result
 
 
 def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = False) -> dict:
@@ -193,9 +231,7 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
     profile, spec = manifest["profile"], manifest["specification"]
     if spec["status"] != "verified":
         if not experimental:
-            raise Error("Candidate SUSFS bundles require --experimental and a registered test instance")
-        from .maintenance import require_lab
-        require_lab(mumu, index)
+            raise Error("Candidate SUSFS bundles require --experimental")
     from .install import verify
     if not verify(mumu, index, root=True, profile_id=profile["id"])["persistent_install_ready"]:
         raise Error("A verified KernelSU-Emulator base and authorized Shell are required")
@@ -205,8 +241,13 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
         raise Error("Resolve the SELinux startup health failure before adding another kernel component")
     stage = "/data/local/tmp/mumu-susfs-" + uuid.uuid4().hex + ".zip"
     adb.push(bundle / manifest["archive"], stage)
+    installed = False
     try:
+        uploaded = adb.shell("sha256sum " + shlex.quote(stage)).split()
+        if not uploaded or uploaded[0] != manifest["archive_sha256"]:
+            raise Error("The uploaded SUSFS ZIP differs from the checked bundle")
         print(adb.su("/data/adb/ksud module install " + shlex.quote(stage)), flush=True)
+        installed = True
         adb.shell("rm -f " + shlex.quote(stage))
         adb.su(f"rm -f /data/adb/modules/{spec['module_id']}/disable /data/adb/modules_update/{spec['module_id']}/disable")
         mumu.stop(index)
@@ -224,9 +265,14 @@ def install_susfs(mumu: MuMu, index: int, bundle: Path, experimental: bool = Fal
             adb.shell("rm -f " + shlex.quote(stage), check=False)
         except (Error, OSError):
             pass
+        if not installed:
+            raise
         # Its own pending-boot guard prevents a failed boot from loading it again.
         # Also request the standard module disable path when ADB is available.
         try:
+            # A panicked guest still looks running to MuMu. Cold-boot first so
+            # the persistent pending marker can suppress that failed engine.
+            mumu.stop(index)
             adb = mumu.start(index)
             adb.su("touch /data/adb/modules/" + spec["module_id"] + "/disable")
             mumu.stop(index)
